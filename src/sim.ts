@@ -7,6 +7,8 @@ import { createWeather, startStorm, stepWeather } from './weather';
 
 export const AIR_SPEED = 25;
 export const ARRIVAL_RADIUS = 15;
+/** Fastest the drone may turn, radians per second, so course changes are smooth arcs. */
+export const MAX_TURN_RATE = 0.7;
 export const GPS_SIGMA = 3;
 export const BARO_SIGMA = 0.3;
 
@@ -28,6 +30,16 @@ export const defaultConfig: Config = {
 /** International barometric formula, hPa at altitude `y` metres. */
 export const pressureAt = (y: number): number => 1013.25 * Math.exp(-y / 8400);
 
+const wrapAngle = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
+
+/** Turns `heading` towards `desired` by at most `maxStep` radians. */
+export const turnTowards = (heading: number, desired: number, maxStep: number): number => {
+  const delta = wrapAngle(desired - heading);
+  return wrapAngle(heading + Math.max(-maxStep, Math.min(maxStep, delta)));
+};
+
+const headingTo = (from: Vec3, to: Vec3): number => Math.atan2(to[2] - from[2], to[0] - from[0]);
+
 const startEkf = (pos: Vec3) =>
   initEkf([pos[0], pos[2], 0, 0, pressureAt(pos[1])], [25, 25, 100, 100, 1]);
 
@@ -40,7 +52,7 @@ export const createSnapshot = (cfg: Config, terrain: Terrain): Snapshot => {
     rng: r2,
     config: cfg,
     waypoints,
-    drone: { pos, wp: 1 },
+    drone: { pos, wp: 1, heading: headingTo(pos, waypoints[1]) },
     ekf: startEkf(pos),
     weather,
   };
@@ -53,8 +65,11 @@ export const step = (s: Snapshot, terrain: Terrain, dt: number): Snapshot => {
   const dx = target[0] - px;
   const dz = target[2] - pz;
   const distance = Math.hypot(dx, dz);
-  const air: Vec2 =
-    distance < 1e-6 ? [0, 0] : [(dx / distance) * AIR_SPEED, (dz / distance) * AIR_SPEED];
+  const heading =
+    distance < 1e-6
+      ? s.drone.heading
+      : turnTowards(s.drone.heading, Math.atan2(dz, dx), MAX_TURN_RATE * dt);
+  const air: Vec2 = [Math.cos(heading) * AIR_SPEED, Math.sin(heading) * AIR_SPEED];
 
   const nx = px + (air[0] + cfg.windX) * dt;
   const nz = pz + (air[1] + cfg.windZ) * dt;
@@ -80,7 +95,7 @@ export const step = (s: Snapshot, terrain: Terrain, dt: number): Snapshot => {
     ...s,
     time: s.time + dt,
     rng: r2,
-    drone: { pos: [nx, ny, nz], wp },
+    drone: { pos: [nx, ny, nz], wp, heading },
     ekf,
     weather,
   };

@@ -11,6 +11,7 @@ import {
   randomisePath,
   step,
   triggerStorm,
+  turnTowards,
 } from './sim';
 import { createRoutes, distanceTo, pointAt, tangentAt } from './routes';
 import {
@@ -470,5 +471,14 @@ describe('sim', () => {
     expect(fresh.waypoints).not.toEqual(start.waypoints);
     expect(fresh.drone.wp).toBe(0);
     expect(triggerStorm(start).weather.phase).toBe('storm');
+  });
+});
+
+describe('smooth turning', () => {
+  it('turns by at most the step and takes the short way round', () => {
+    expect(turnTowards(0, 1, 0.1)).toBeCloseTo(0.1);
+    expect(turnTowards(0, -1, 0.1)).toBeCloseTo(-0.1);
+    expect(turnTowards(3, -3, 0.1)).toBeCloseTo(3.1);
+    expect(turnTowards(0, 0.05, 0.1)).toBeCloseTo(0.05);
   });
 });

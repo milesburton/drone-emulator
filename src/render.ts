@@ -300,9 +300,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     const [x, y, z] = s.drone.pos;
     const previous = cache.droneAt.clone();
     cache.droneAt.set(x, y, z);
-    const target = s.waypoints[s.drone.wp];
     drone.position.copy(cache.droneAt);
-    drone.lookAt(target[0], y, target[2]);
+    drone.lookAt(x + Math.cos(s.drone.heading), y, z + Math.sin(s.drone.heading));
     const [ex, ez] = positionOf(s.ekf);
     estimate.position.set(ex, y + 8, ez);
     camera.position.add(cache.droneAt.clone().sub(previous));

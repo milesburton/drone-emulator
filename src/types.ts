@@ -40,6 +40,8 @@ export interface Drone {
   readonly pos: Vec3;
   /** Index of the waypoint currently being flown to. */
   readonly wp: number;
+  /** Direction of travel in radians on the ground plane, atan2(dz, dx). */
+  readonly heading: number;
 }
 
 export type Vec = readonly number[];
