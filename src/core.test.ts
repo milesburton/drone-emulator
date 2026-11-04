@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CLEARANCE as CRUISE, MIN_CLEARANCE, flightLine, nextAltitude } from './altitude';
 import { initEkf, MEASUREMENT_MATRIX, predict, update, windBiasOf } from './ekf';
 import { identity, inverse, mul, symmetrise, trace, transpose } from './matrix';
 import { gaussians, next, nextGaussian, ranges, toRandomFn } from './rng';
@@ -230,6 +231,22 @@ describe('terrain', () => {
     ribbon.forEach(([, y]) => expect(y).toBeGreaterThan(t.waterLevel));
   });
 
+  it('keeps roads on dry land except where they bridge the river', () => {
+    [1337, 7, 42, 2024].forEach((seed) => {
+      const t = createTerrain({ ...defaultConfig, seed });
+      const river = t.routes.river;
+      t.routes.roads.forEach((road) =>
+        terrainCoords(t)
+          .filter((s) => Math.abs(s) <= t.cfg.worldSize / 2)
+          .forEach((s) => {
+            const [x, z] = pointAt(road, s);
+            const nearRiver = river !== null && distanceTo(river, x, z) < 45;
+            if (!nearRiver) expect(t.heightAt(x, z)).toBeGreaterThan(t.waterLevel);
+          }),
+      );
+    });
+  });
+
   it('colours by elevation band', () => {
     const t = createTerrain({ ...defaultConfig, lakes: false, river: false });
     const [sr, , sb] = colourAt(t.waterLevel, t);
@@ -427,6 +444,46 @@ describe('sim', () => {
     const later = run(start, 30);
     const [x, y, z] = later.drone.pos;
     expect(y).toBeGreaterThan(terrain.heightAt(x, z));
+  });
+
+  const fly = (cfg: typeof defaultConfig, steps: number): readonly Snapshot[] => {
+    const t = createTerrain(cfg);
+    return Array.from({ length: steps }).reduce<Snapshot[]>(
+      (acc) => [...acc, step(acc[acc.length - 1], t, 0.05)],
+      [createSnapshot(cfg, t)],
+    );
+  };
+
+  it('never clips the terrain, even on steep ground', () => {
+    [1337, 7, 42].forEach((seed) => {
+      const cfg = { ...defaultConfig, seed, terrainScale: 120 };
+      const t = createTerrain(cfg);
+      fly(cfg, 6000).forEach(({ drone: { pos } }) =>
+        expect(pos[1] - t.heightAt(pos[0], pos[2])).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6),
+      );
+    });
+  });
+
+  it('climbs and descends gently on ordinary terrain', () => {
+    [1337, 7, 42].forEach((seed) => {
+      const states = fly({ ...defaultConfig, seed }, 6000);
+      const rates = states
+        .slice(1)
+        .map((s, i) => Math.abs(s.drone.pos[1] - states[i].drone.pos[1]) / 0.05);
+      expect(Math.max(...rates)).toBeLessThan(25);
+    });
+  });
+
+  it('starts climbing before a hill and eases altitude towards the target', () => {
+    const y = nextAltitude(terrain, 100, 0, 0, 0, 0.05);
+    expect(y).toBeGreaterThanOrEqual(terrain.heightAt(0, 0) + MIN_CLEARANCE);
+    expect(Math.abs(y - 100)).toBeLessThan(10);
+  });
+
+  it('draws a flight line that stays above the ground', () => {
+    const line = flightLine(start.waypoints, terrain);
+    expect(line.length).toBeGreaterThan(start.waypoints.length);
+    line.forEach(([x, y, z]) => expect(y).toBeGreaterThanOrEqual(terrain.heightAt(x, z) + CRUISE));
   });
 
   it('keeps the estimate close to the truth', () => {

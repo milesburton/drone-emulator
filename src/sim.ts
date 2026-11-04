@@ -1,8 +1,9 @@
+import { nextAltitude } from './altitude';
 import { initEkf, predict, update, MEASUREMENT_MATRIX } from './ekf';
 import { gaussians } from './rng';
 import { createTerrain, terrainKey, type Terrain } from './terrain';
 import type { Config, Snapshot, Vec2, Vec3 } from './types';
-import { CLEARANCE, generateWaypoints, retarget, riverWaypoints } from './waypoints';
+import { generateWaypoints, retarget, riverWaypoints } from './waypoints';
 import { createWeather, startStorm, stepWeather } from './weather';
 
 export const AIR_SPEED = 25;
@@ -73,7 +74,7 @@ export const step = (s: Snapshot, terrain: Terrain, dt: number): Snapshot => {
 
   const nx = px + (air[0] + cfg.windX) * dt;
   const nz = pz + (air[1] + cfg.windZ) * dt;
-  const ny = py + (terrain.heightAt(nx, nz) + CLEARANCE - py) * Math.min(1, dt * 2);
+  const ny = nextAltitude(terrain, py, nx, nz, heading, dt);
   const wp = distance < ARRIVAL_RADIUS ? (s.drone.wp + 1) % s.waypoints.length : s.drone.wp;
 
   const [noise, r1] = gaussians(s.rng, 3);

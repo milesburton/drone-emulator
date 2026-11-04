@@ -1,17 +1,14 @@
+import { CLEARANCE, seatWaypoint } from './altitude';
 import { ranges } from './rng';
 import { pointAt } from './routes';
 import type { Terrain } from './terrain';
 import type { Config, Vec3 } from './types';
 
-export const CLEARANCE = 40;
+export { CLEARANCE };
 export const WAYPOINT_COUNT = 6;
 export const RIVER_WAYPOINTS = 14;
 
-const place = (terrain: Terrain, x: number, z: number): Vec3 => [
-  x,
-  terrain.heightAt(x, z) + CLEARANCE,
-  z,
-];
+const place = seatWaypoint;
 
 export const generateWaypoints = (
   cfg: Config,

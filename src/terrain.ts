@@ -41,6 +41,9 @@ const FLOODPLAIN_FAR = 130;
 const ROAD_HALF_WIDTH = 4;
 const ROAD_LIFT = 0.8;
 const BRIDGE_CLEARANCE = 1.5;
+const ROAD_VERGE_NEAR = ROAD_HALF_WIDTH + 6;
+const ROAD_VERGE_FAR = ROAD_HALF_WIDTH + 45;
+const ROAD_BED_ABOVE_WATER = 3;
 
 /** How much further than the playable world the land extends, and how many coarse rings it uses. */
 export const FAR_FACTOR = 4.5;
@@ -55,6 +58,7 @@ export const createTerrain = (cfg: Config): Terrain => {
   const lakeBed = waterLevel - 0.1 * cfg.terrainScale;
   const riverBed = waterLevel - 0.08 * cfg.terrainScale;
   const floodplain = waterLevel + 0.06 * cfg.terrainScale;
+  const roadBed = waterLevel + ROAD_BED_ABOVE_WATER;
 
   const heightAt = (x: number, z: number): number => {
     const fx = x * HILL_FREQUENCY;
@@ -62,9 +66,16 @@ export const createTerrain = (cfg: Config): Terrain => {
     const raw =
       0.62 * hills(fx, fz) + 0.28 * hills(fx * 3.1, fz * 3.1) + 0.1 * hills(fx * 9, fz * 9);
     const base = raw * cfg.terrainScale;
-    const land = cfg.lakes
+    const roadDistance = routes.roads.reduce(
+      (best, road) => Math.min(best, distanceTo(road, x, z)),
+      Infinity,
+    );
+    const roadBlend = 1 - smoothstep(ROAD_VERGE_NEAR, ROAD_VERGE_FAR, roadDistance);
+    const lakeShore = cfg.lakes
       ? lerp(lakeBed, base, smoothstep(0, LAKE_WIDTH, Math.abs(lakeNoise(x * 0.0028, z * 0.0028))))
       : base;
+    // Roads sit on dry land: lakes and low ground are raised to an embankment beside them.
+    const land = lerp(lakeShore, Math.max(base, roadBed), roadBlend);
     if (!routes.river) return land;
     const distance = distanceTo(routes.river, x, z);
     const plain = lerp(

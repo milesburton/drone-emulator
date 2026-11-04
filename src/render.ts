@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { flightLine } from './altitude';
+import { buildDrone } from './droneModel';
 import { positionOf } from './ekf';
 import { colourAt, roadRibbon, terrainCoords, type Terrain } from './terrain';
 import type { Snapshot, Vec3 } from './types';
@@ -17,6 +19,7 @@ export interface View {
 
 const RAIN_COUNT = 1800;
 const WIND_COUNT = 450;
+const ROTOR_SPEED = 60;
 const FOG_NEAR = 600;
 const FOG_FAR = 4200;
 const CLOUD_WHITE = new THREE.Color(0xffffff);
@@ -120,10 +123,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   );
   scene.add(water);
 
-  const drone = new THREE.Mesh(
-    new THREE.ConeGeometry(5, 14, 4).rotateX(Math.PI / 2),
-    new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x444444 }),
-  );
+  const { group: drone, rotors } = buildDrone();
   const estimate = new THREE.Mesh(
     new THREE.SphereGeometry(4, 12, 8),
     new THREE.MeshBasicMaterial({ color: 0xff3b30 }),
@@ -199,7 +199,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     water.position.y = terrain.waterLevel;
   };
 
-  const syncWaypoints = (waypoints: readonly Vec3[]): void => {
+  const syncWaypoints = (waypoints: readonly Vec3[], terrain: Terrain): void => {
     if (cache.waypoints === waypoints) return;
     markers.children.slice().forEach((m) => {
       markers.remove(m);
@@ -213,7 +213,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
       marker.position.set(x, y, z);
       markers.add(marker);
     });
-    const loop = [...waypoints, waypoints[0]].map(([x, y, z]) => new THREE.Vector3(x, y, z));
+    const route = flightLine(waypoints, terrain);
+    const loop = [...route, route[0]].map(([x, y, z]) => new THREE.Vector3(x, y, z));
     pathLine.geometry.dispose();
     pathLine.geometry = new THREE.BufferGeometry().setFromPoints(loop);
     cache.waypoints = waypoints;
@@ -292,7 +293,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
 
   const draw = (s: Snapshot, terrain: Terrain): void => {
     syncTerrain(terrain);
-    syncWaypoints(s.waypoints);
+    syncWaypoints(s.waypoints, terrain);
     s.weather.clouds.forEach((c, i) => {
       clouds[i].position.set(c.x, c.y, c.z);
       clouds[i].scale.setScalar(c.radius);
@@ -302,6 +303,9 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     cache.droneAt.set(x, y, z);
     drone.position.copy(cache.droneAt);
     drone.lookAt(x + Math.cos(s.drone.heading), y, z + Math.sin(s.drone.heading));
+    rotors.forEach((rotor, i) => {
+      rotor.rotation.y = s.time * ROTOR_SPEED * (i % 2 === 0 ? 1 : -1);
+    });
     const [ex, ez] = positionOf(s.ekf);
     estimate.position.set(ex, y + 8, ez);
     camera.position.add(cache.droneAt.clone().sub(previous));
