@@ -3,6 +3,11 @@ import type { Cloud, Config, Vec2, Vec3, Weather } from './types';
 
 export const CLOUD_COUNT = 14;
 const CLOUD_DRIFT = 1.5;
+const RAIN_SPEED = 90;
+const RAIN_STREAK = 6;
+
+/** Every other cloud is a rain cloud; fixed by index so rain never jumps between clouds. */
+export const isStormCloud = (index: number): boolean => index % 2 === 0;
 
 export const generateClouds = (cfg: Config, rng: number): readonly [readonly Cloud[], number] => {
   const extent = cfg.worldSize * 0.6;
@@ -82,11 +87,24 @@ export const stepWeather = (
     ];
   }
 
-  const half = cfg.worldSize * 0.4;
-  const [sx, r2] = nextRange(r1, -half, half);
-  const [sz, r3] = nextRange(r2, -half, half);
-  const [wait, r4] = nextRange(r3, 2, 7);
-  return [{ clouds, phase, phaseLeft, rain, flash: 1, nextStrikeIn: wait, strike: [sx, sz] }, r4];
+  const stormClouds = clouds.filter((_, i) => isStormCloud(i));
+  const [pick, r2] = next(r1);
+  const cloud = stormClouds[Math.floor(pick * stormClouds.length)];
+  const [jx, r3] = nextRange(r2, -0.5 * cloud.radius, 0.5 * cloud.radius);
+  const [jz, r4] = nextRange(r3, -0.5 * cloud.radius, 0.5 * cloud.radius);
+  const [wait, r5] = nextRange(r4, 2, 7);
+  return [
+    {
+      clouds,
+      phase,
+      phaseLeft,
+      rain,
+      flash: 1,
+      nextStrikeIn: wait,
+      strike: [cloud.x + jx, cloud.z + jz],
+    },
+    r5,
+  ];
 };
 
 /** Deterministic jagged bolt from cloud base to the ground at `strike`. */
@@ -116,4 +134,30 @@ export const rainDrops = (count: number, seed: number): readonly Vec3[] => {
   const [ys, r2] = ranges(r1, count, 0, 1);
   const [zs] = ranges(r2, count, 0, 1);
   return xs.map((x, i) => [x, ys[i], zs[i]] as const);
+};
+
+const wrap = (v: number, m: number): number => ((v % m) + m) % m;
+
+/** Base of a cloud, where its rain starts. */
+export const cloudBase = (cloud: Cloud): number => cloud.y - 0.2 * cloud.radius;
+
+/**
+ * One falling streak (bottom, top) for a fixed drop offset under `cloud`, between the
+ * cloud base and the ground; the position is a pure function of time.
+ */
+export const rainStreak = (
+  drop: Vec3,
+  cloud: Cloud,
+  groundY: number,
+  time: number,
+): readonly [Vec3, Vec3] => {
+  const top = cloudBase(cloud);
+  const fall = Math.max(top - groundY, 1);
+  const x = cloud.x + (drop[0] - 0.5) * 1.6 * cloud.radius;
+  const z = cloud.z + (drop[2] - 0.5) * 1.6 * cloud.radius;
+  const y = Math.max(top - wrap(drop[1] * fall + time * RAIN_SPEED, fall), groundY);
+  return [
+    [x, y, z],
+    [x, y + RAIN_STREAK, z],
+  ];
 };

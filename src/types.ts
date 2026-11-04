@@ -8,7 +8,11 @@ export interface Config {
   readonly terrainScale: number;
   readonly worldSize: number;
   readonly resolution: number;
+  /** Noise-carved ponds and lakes. */
+  readonly lakes: boolean;
+  /** A winding river that the drone can follow. */
   readonly river: boolean;
+  readonly roads: boolean;
 }
 
 export interface Cloud {

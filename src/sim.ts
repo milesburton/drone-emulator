@@ -2,7 +2,7 @@ import { initEkf, predict, update, MEASUREMENT_MATRIX } from './ekf';
 import { gaussians } from './rng';
 import { createTerrain, terrainKey, type Terrain } from './terrain';
 import type { Config, Snapshot, Vec2, Vec3 } from './types';
-import { CLEARANCE, generateWaypoints, retarget } from './waypoints';
+import { CLEARANCE, generateWaypoints, retarget, riverWaypoints } from './waypoints';
 import { createWeather, startStorm, stepWeather } from './weather';
 
 export const AIR_SPEED = 25;
@@ -20,7 +20,9 @@ export const defaultConfig: Config = {
   terrainScale: 60,
   worldSize: 1000,
   resolution: 160,
+  lakes: true,
   river: true,
+  roads: true,
 };
 
 /** International barometric formula, hPa at altitude `y` metres. */
@@ -105,3 +107,17 @@ export const triggerStorm = (s: Snapshot): Snapshot => ({
   ...s,
   weather: startStorm(s.weather),
 });
+
+const nearestWaypoint = (waypoints: readonly Vec3[], [px, , pz]: Vec3): number =>
+  waypoints.reduce(
+    (best, [x, , z], i) =>
+      Math.hypot(x - px, z - pz) < best.d ? { i, d: Math.hypot(x - px, z - pz) } : best,
+    { i: 0, d: Infinity },
+  ).i;
+
+/** Replaces the path with an out-and-back flight along the river; a no-op when there is no river. */
+export const followRiver = (s: Snapshot, terrain: Terrain): Snapshot => {
+  const waypoints = riverWaypoints(terrain);
+  if (waypoints.length === 0) return s;
+  return { ...s, waypoints, drone: { ...s.drone, wp: nearestWaypoint(waypoints, s.drone.pos) } };
+};

@@ -90,11 +90,14 @@
       <input id="windZ" type="range" min="-20" max="20" step="1" />
       <label for="terrainScale">Terrain scale <span id="terrainScale-value"></span> m</label>
       <input id="terrainScale" type="range" min="10" max="150" step="5" />
+      <label><input id="lakes" type="checkbox" /> Lakes</label>
       <label><input id="river" type="checkbox" /> River</label>
+      <label><input id="roads" type="checkbox" /> Roads</label>
       <button id="random-path" type="button">Random Path</button>
+      <button id="river-path" type="button">River Path</button>
       <button id="storm" type="button">Storm</button>
       <div class="legend">
-        White = drone, red = EKF estimate, yellow = waypoints. Drag to orbit.
+        White = drone, red = EKF estimate, yellow = waypoints, faint streaks = wind. Drag to orbit.
       </div>
     </div>
     <pre id="hud"></pre>

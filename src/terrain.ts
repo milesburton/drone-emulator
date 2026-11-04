@@ -1,11 +1,15 @@
 import { createNoise2D } from 'simplex-noise';
 import { toRandomFn } from './rng';
-import type { Config } from './types';
+import { createRoutes, distanceTo, pointAt, tangentAt, type Route, type Routes } from './routes';
+import type { Config, Vec3 } from './types';
 
 export interface Terrain {
   readonly heightAt: (x: number, z: number) => number;
   readonly waterLevel: number;
   readonly cfg: Config;
+  readonly routes: Routes;
+  /** Half-size of the rendered land; far larger than the playable world so it reaches the fog. */
+  readonly extent: number;
 }
 
 export type Rgb = readonly [number, number, number];
@@ -24,16 +28,33 @@ const mix = (a: Rgb, b: Rgb, t: number): Rgb => [
 
 /** Terrain-affecting config fields; if this key is unchanged the terrain can be reused. */
 export const terrainKey = (cfg: Config): string =>
-  [cfg.seed, cfg.terrainScale, cfg.worldSize, cfg.resolution, cfg.river].join(':');
+  [cfg.seed, cfg.terrainScale, cfg.worldSize, cfg.resolution, cfg.lakes, cfg.river, cfg.roads].join(
+    ':',
+  );
 
-const RIVER_WIDTH = 0.05;
+const LAKE_WIDTH = 0.05;
 const HILL_FREQUENCY = 1 / 380;
+const CHANNEL_HALF_WIDTH = 12;
+const BANK_WIDTH = 40;
+const FLOODPLAIN_NEAR = 30;
+const FLOODPLAIN_FAR = 130;
+const ROAD_HALF_WIDTH = 4;
+const ROAD_LIFT = 0.8;
+const BRIDGE_CLEARANCE = 1.5;
+
+/** How much further than the playable world the land extends, and how many coarse rings it uses. */
+export const FAR_FACTOR = 4.5;
+const FAR_CELLS = 40;
+const FAR_GROWTH = 3;
 
 export const createTerrain = (cfg: Config): Terrain => {
   const hills = createNoise2D(toRandomFn(cfg.seed));
-  const riverNoise = createNoise2D(toRandomFn(cfg.seed ^ 0x9e3779b9));
+  const lakeNoise = createNoise2D(toRandomFn(cfg.seed ^ 0x9e3779b9));
+  const routes = createRoutes(cfg);
   const waterLevel = -0.3 * cfg.terrainScale;
-  const riverBed = waterLevel - 0.1 * cfg.terrainScale;
+  const lakeBed = waterLevel - 0.1 * cfg.terrainScale;
+  const riverBed = waterLevel - 0.08 * cfg.terrainScale;
+  const floodplain = waterLevel + 0.06 * cfg.terrainScale;
 
   const heightAt = (x: number, z: number): number => {
     const fx = x * HILL_FREQUENCY;
@@ -41,13 +62,60 @@ export const createTerrain = (cfg: Config): Terrain => {
     const raw =
       0.62 * hills(fx, fz) + 0.28 * hills(fx * 3.1, fz * 3.1) + 0.1 * hills(fx * 9, fz * 9);
     const base = raw * cfg.terrainScale;
-    if (!cfg.river) return base;
-    const distance = Math.abs(riverNoise(x * 0.0028, z * 0.0028));
-    return lerp(riverBed, base, smoothstep(0, RIVER_WIDTH, distance));
+    const land = cfg.lakes
+      ? lerp(lakeBed, base, smoothstep(0, LAKE_WIDTH, Math.abs(lakeNoise(x * 0.0028, z * 0.0028))))
+      : base;
+    if (!routes.river) return land;
+    const distance = distanceTo(routes.river, x, z);
+    const plain = lerp(
+      Math.max(land, floodplain),
+      land,
+      smoothstep(FLOODPLAIN_NEAR, FLOODPLAIN_FAR, distance),
+    );
+    return lerp(riverBed, plain, smoothstep(CHANNEL_HALF_WIDTH, BANK_WIDTH, distance));
   };
 
-  return { heightAt, waterLevel, cfg };
+  return { heightAt, waterLevel, cfg, routes, extent: cfg.worldSize * FAR_FACTOR };
 };
+
+/**
+ * Ascending grid coordinates along one axis: uniform across the playable world, then
+ * spacing that grows towards `outer`. One mesh with graded spacing has no seams.
+ */
+export const gridCoords = (
+  inner: number,
+  outer: number,
+  innerCells: number,
+  outerCells: number,
+): readonly number[] => {
+  const far = Array.from(
+    { length: outerCells },
+    (_, k) =>
+      inner +
+      ((outer - inner) * (Math.exp((FAR_GROWTH * (k + 1)) / outerCells) - 1)) /
+        (Math.exp(FAR_GROWTH) - 1),
+  );
+  const centre = Array.from(
+    { length: innerCells + 1 },
+    (_, i) => -inner + (2 * inner * i) / innerCells,
+  );
+  return [...far.map((v) => -v).reverse(), ...centre, ...far];
+};
+
+export const terrainCoords = (terrain: Terrain): readonly number[] =>
+  gridCoords(terrain.cfg.worldSize / 2, terrain.extent, terrain.cfg.resolution - 1, FAR_CELLS);
+
+/** Pairs of left/right edge vertices draping a road over the land; bridges dip-free over water. */
+export const roadRibbon = (road: Route, terrain: Terrain): readonly Vec3[] =>
+  terrainCoords(terrain).flatMap((s) => {
+    const [x, z] = pointAt(road, s);
+    const [tx, tz] = tangentAt(road, s);
+    const y = Math.max(terrain.heightAt(x, z), terrain.waterLevel + BRIDGE_CLEARANCE) + ROAD_LIFT;
+    return [
+      [x - tz * ROAD_HALF_WIDTH, y, z + tx * ROAD_HALF_WIDTH],
+      [x + tz * ROAD_HALF_WIDTH, y, z - tx * ROAD_HALF_WIDTH],
+    ] as const;
+  });
 
 const SAND: Rgb = [0.78, 0.72, 0.5];
 const GRASS_LOW: Rgb = [0.22, 0.48, 0.18];

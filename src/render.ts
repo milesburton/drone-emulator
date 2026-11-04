@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { positionOf } from './ekf';
-import { colourAt, type Terrain } from './terrain';
+import { colourAt, roadRibbon, terrainCoords, type Terrain } from './terrain';
 import type { Snapshot, Vec3 } from './types';
-import { boltPoints, CLOUD_COUNT, rainDrops } from './weather';
+import { boltPoints, CLOUD_COUNT, cloudBase, isStormCloud, rainDrops, rainStreak } from './weather';
+import { streakSegment, windSpeed } from './wind';
 
 /**
  * The Three.js shell. Everything mutable lives inside this closure; it only ever
@@ -15,26 +16,54 @@ export interface View {
 }
 
 const RAIN_COUNT = 1800;
-const RAIN_BOX = 400;
-const RAIN_HEIGHT = 320;
+const WIND_COUNT = 450;
+const FOG_NEAR = 600;
+const FOG_FAR = 4200;
+const CLOUD_WHITE = new THREE.Color(0xffffff);
+const CLOUD_STORM = new THREE.Color(0x4f5560);
 const SKY_CLEAR = new THREE.Color(0x87b8e8);
 const SKY_STORM = new THREE.Color(0x3b424d);
 
 const buildTerrainMesh = (terrain: Terrain): THREE.Mesh => {
-  const { worldSize, resolution } = terrain.cfg;
-  const geometry = new THREE.PlaneGeometry(worldSize, worldSize, resolution - 1, resolution - 1);
+  const coords = terrainCoords(terrain);
+  const n = coords.length;
+  const geometry = new THREE.PlaneGeometry(1, 1, n - 1, n - 1);
   geometry.rotateX(-Math.PI / 2);
   const positions = geometry.attributes.position;
   const colours = new Float32Array(positions.count * 3);
   for (let i = 0; i < positions.count; i++) {
-    const h = terrain.heightAt(positions.getX(i), positions.getZ(i));
-    positions.setY(i, h);
+    const x = coords[i % n];
+    const z = coords[Math.floor(i / n)];
+    const h = terrain.heightAt(x, z);
+    positions.setXYZ(i, x, h, z);
     const [r, g, b] = colourAt(h, terrain);
     colours.set([r, g, b], i * 3);
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colours, 3));
   geometry.computeVertexNormals();
   return new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ vertexColors: true }));
+};
+
+const buildRoad = (ribbon: readonly Vec3[]): THREE.Mesh => {
+  const geometry = new THREE.BufferGeometry().setFromPoints(
+    ribbon.map(([x, y, z]) => new THREE.Vector3(x, y, z)),
+  );
+  const quads = ribbon.length / 2 - 1;
+  geometry.setIndex(
+    Array.from({ length: quads }, (_, q) => [
+      2 * q,
+      2 * q + 1,
+      2 * q + 2,
+      2 * q + 1,
+      2 * q + 3,
+      2 * q + 2,
+    ]).flat(),
+  );
+  geometry.computeVertexNormals();
+  return new THREE.Mesh(
+    geometry,
+    new THREE.MeshLambertMaterial({ color: 0x46464c, side: THREE.DoubleSide }),
+  );
 };
 
 const disposeObject = (obj: THREE.Object3D): void => {
@@ -74,7 +103,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   const scene = new THREE.Scene();
   scene.background = SKY_CLEAR.clone();
-  const camera = new THREE.PerspectiveCamera(60, 1, 1, 6000);
+  scene.fog = new THREE.Fog(SKY_CLEAR.clone(), FOG_NEAR, FOG_FAR);
+  const camera = new THREE.PerspectiveCamera(60, 1, 1, 12000);
   camera.position.set(0, 220, 380);
   const controls = new OrbitControls(camera, canvas);
   controls.maxPolarAngle = Math.PI * 0.49;
@@ -104,6 +134,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   clouds.forEach((c) => scene.add(c));
 
   const drops = rainDrops(RAIN_COUNT, 77);
+  const stormIndices = Array.from({ length: CLOUD_COUNT }, (_, i) => i).filter(isStormCloud);
   const rainPositions = new Float32Array(RAIN_COUNT * 6);
   const rainGeometry = new THREE.BufferGeometry();
   rainGeometry.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
@@ -113,6 +144,17 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   );
   rain.frustumCulled = false;
   scene.add(rain);
+
+  const streaks = rainDrops(WIND_COUNT, 311);
+  const windPositions = new Float32Array(WIND_COUNT * 6);
+  const windGeometry = new THREE.BufferGeometry();
+  windGeometry.setAttribute('position', new THREE.BufferAttribute(windPositions, 3));
+  const windLines = new THREE.LineSegments(
+    windGeometry,
+    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.1 }),
+  );
+  windLines.frustumCulled = false;
+  scene.add(windLines);
 
   const bolt = new THREE.Line(
     new THREE.BufferGeometry(),
@@ -134,6 +176,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   const cache = {
     terrain: null as Terrain | null,
     mesh: null as THREE.Mesh | null,
+    roads: [] as THREE.Mesh[],
     waypoints: null as readonly Vec3[] | null,
     droneAt: new THREE.Vector3(),
   };
@@ -144,10 +187,15 @@ export const createView = (canvas: HTMLCanvasElement): View => {
       scene.remove(cache.mesh);
       disposeObject(cache.mesh);
     }
+    cache.roads.forEach((road) => {
+      scene.remove(road);
+      disposeObject(road);
+    });
     cache.mesh = buildTerrainMesh(terrain);
-    scene.add(cache.mesh);
+    cache.roads = terrain.routes.roads.map((road) => buildRoad(roadRibbon(road, terrain)));
+    scene.add(cache.mesh, ...cache.roads);
     cache.terrain = terrain;
-    water.scale.set(terrain.cfg.worldSize, 1, terrain.cfg.worldSize);
+    water.scale.set(terrain.extent * 2, 1, terrain.extent * 2);
     water.position.y = terrain.waterLevel;
   };
 
@@ -171,27 +219,60 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     cache.waypoints = waypoints;
   };
 
-  const syncRain = (s: Snapshot): void => {
+  const syncRain = (s: Snapshot, terrain: Terrain): void => {
     const intensity = s.weather.rain;
     rain.visible = intensity > 0.03;
+    stormIndices.forEach((i) => {
+      const puff = clouds[i].children[0] as THREE.Mesh;
+      (puff.material as THREE.MeshLambertMaterial).color
+        .copy(CLOUD_WHITE)
+        .lerp(CLOUD_STORM, intensity);
+    });
     if (!rain.visible) return;
     (rain.material as THREE.LineBasicMaterial).opacity = 0.15 + intensity * 0.45;
-    const [cx, cy, cz] = s.drone.pos;
-    const fall = s.time * 90;
-    drops.forEach(([ox, oy, oz], i) => {
-      const y = (((oy * RAIN_HEIGHT - fall) % RAIN_HEIGHT) + RAIN_HEIGHT) % RAIN_HEIGHT;
-      const x = cx + (ox - 0.5) * RAIN_BOX;
-      const z = cz + (oz - 0.5) * RAIN_BOX;
-      const top = cy - 120 + y;
-      rainPositions.set([x, top, z, x, top - 6, z], i * 6);
+    drops.forEach((drop, i) => {
+      const cloud = s.weather.clouds[stormIndices[i % stormIndices.length]];
+      const ground = terrain.heightAt(
+        cloud.x + (drop[0] - 0.5) * 1.6 * cloud.radius,
+        cloud.z + (drop[2] - 0.5) * 1.6 * cloud.radius,
+      );
+      const [bottom, top] = rainStreak(drop, cloud, ground, s.time);
+      rainPositions.set([...bottom, ...top], i * 6);
     });
     rainGeometry.attributes.position.needsUpdate = true;
   };
 
+  const syncWind = (s: Snapshot): void => {
+    const { windX, windZ } = s.config;
+    const speed = windSpeed(windX, windZ);
+    windLines.visible = speed > 0.5;
+    if (!windLines.visible) return;
+    (windLines.material as THREE.LineBasicMaterial).opacity =
+      0.05 + (Math.min(speed, 20) / 20) * 0.15;
+    streaks.forEach((offset, i) => {
+      const [head, tail] = streakSegment(offset, windX, windZ, s.time, s.drone.pos);
+      windPositions.set([...head, ...tail], i * 6);
+    });
+    windGeometry.attributes.position.needsUpdate = true;
+  };
+
+  const boltTop = (s: Snapshot, strike: readonly [number, number]): number =>
+    s.weather.clouds
+      .filter((_, i) => isStormCloud(i))
+      .reduce(
+        (best, c) =>
+          Math.hypot(c.x - strike[0], c.z - strike[1]) < best.d
+            ? { d: Math.hypot(c.x - strike[0], c.z - strike[1]), y: cloudBase(c) }
+            : best,
+        { d: Infinity, y: 220 },
+      ).y;
+
   const syncLightning = (s: Snapshot, terrain: Terrain): void => {
     const { flash, strike, rain: intensity } = s.weather;
     const sky = SKY_CLEAR.clone().lerp(SKY_STORM, intensity);
-    (scene.background as THREE.Color).copy(sky.lerp(new THREE.Color(0xffffff), flash * 0.6));
+    const skyColour = sky.lerp(new THREE.Color(0xffffff), flash * 0.6);
+    (scene.background as THREE.Color).copy(skyColour);
+    (scene.fog as THREE.Fog).color.copy(skyColour);
     ambient.intensity = 0.7 - intensity * 0.35 + flash * 0.9;
     sun.intensity = 1.1 - intensity * 0.7;
     flashLight.intensity = flash * 6;
@@ -202,7 +283,9 @@ export const createView = (canvas: HTMLCanvasElement): View => {
       flashLight.position.set(strike[0], 150, strike[1]);
       bolt.geometry.dispose();
       bolt.geometry = new THREE.BufferGeometry().setFromPoints(
-        boltPoints(strike, 220, ground).map(([x, y, z]) => new THREE.Vector3(x, y, z)),
+        boltPoints(strike, boltTop(s, strike), ground).map(
+          ([x, y, z]) => new THREE.Vector3(x, y, z),
+        ),
       );
     }
   };
@@ -225,7 +308,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     camera.position.add(cache.droneAt.clone().sub(previous));
     controls.target.copy(cache.droneAt);
     controls.update();
-    syncRain(s);
+    syncRain(s, terrain);
+    syncWind(s);
     syncLightning(s, terrain);
     renderer.render(scene, camera);
   };

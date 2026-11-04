@@ -4,6 +4,7 @@ import {
   applyConfig,
   createSnapshot,
   defaultConfig,
+  followRiver,
   randomisePath,
   step,
   triggerStorm,
@@ -43,16 +44,29 @@ const bindSlider = (id: string, key: keyof Config): void => {
   });
 };
 
+const riverPath = byId<HTMLButtonElement>('river-path');
 bindSlider('windX', 'windX');
 bindSlider('windZ', 'windZ');
 bindSlider('terrainScale', 'terrainScale');
 
-const river = byId<HTMLInputElement>('river');
-river.checked = defaultConfig.river;
-river.addEventListener('change', () => configure({ river: river.checked }));
+const bindToggle = (id: 'lakes' | 'river' | 'roads'): void => {
+  const input = byId<HTMLInputElement>(id);
+  input.checked = defaultConfig[id];
+  input.addEventListener('change', () => {
+    configure({ [id]: input.checked });
+    riverPath.disabled = !model.terrain.routes.river;
+  });
+};
+
+bindToggle('lakes');
+bindToggle('river');
+bindToggle('roads');
 
 byId('random-path').addEventListener('click', () => {
   model.snapshot = randomisePath(model.snapshot, model.terrain);
+});
+riverPath.addEventListener('click', () => {
+  model.snapshot = followRiver(model.snapshot, model.terrain);
 });
 byId('storm').addEventListener('click', () => {
   model.snapshot = triggerStorm(model.snapshot);

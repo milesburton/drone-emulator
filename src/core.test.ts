@@ -6,14 +6,33 @@ import {
   applyConfig,
   createSnapshot,
   defaultConfig,
+  followRiver,
   pressureAt,
   randomisePath,
   step,
   triggerStorm,
 } from './sim';
-import { colourAt, createTerrain, terrainKey } from './terrain';
-import { CLEARANCE, generateWaypoints, retarget } from './waypoints';
-import { boltPoints, rainDrops, startStorm, stepWeather, createWeather } from './weather';
+import { createRoutes, distanceTo, pointAt, tangentAt } from './routes';
+import {
+  colourAt,
+  createTerrain,
+  gridCoords,
+  roadRibbon,
+  terrainCoords,
+  terrainKey,
+} from './terrain';
+import { CLEARANCE, generateWaypoints, retarget, riverWaypoints } from './waypoints';
+import {
+  boltPoints,
+  cloudBase,
+  createWeather,
+  isStormCloud,
+  rainDrops,
+  rainStreak,
+  startStorm,
+  stepWeather,
+} from './weather';
+import { streakSegment, WIND_BOX } from './wind';
 import type { Snapshot } from './types';
 
 const deepFreeze = <T>(o: T): T => {
@@ -166,24 +185,52 @@ describe('terrain', () => {
   });
 
   it('scales height with terrainScale', () => {
-    const lo = createTerrain({ ...cfg, river: false, terrainScale: 20 });
-    const hi = createTerrain({ ...cfg, river: false, terrainScale: 100 });
+    const lo = createTerrain({ ...cfg, lakes: false, river: false, terrainScale: 20 });
+    const hi = createTerrain({ ...cfg, lakes: false, river: false, terrainScale: 100 });
     expect(Math.abs(hi.heightAt(50, 50))).toBeGreaterThan(Math.abs(lo.heightAt(50, 50)));
   });
 
-  it('carves the river below the water level', () => {
-    const withRiver = createTerrain(cfg);
+  it('carves lakes below the water level', () => {
+    const wet = createTerrain({ ...cfg, river: false, roads: false });
     const samples = Array.from({ length: 80 }, (_, i) => -400 + i * 10).flatMap((x) =>
-      Array.from({ length: 80 }, (_, j) => withRiver.heightAt(x, -400 + j * 10)),
+      Array.from({ length: 80 }, (_, j) => wet.heightAt(x, -400 + j * 10)),
     );
-    expect(Math.min(...samples)).toBeLessThan(withRiver.waterLevel);
-    const dry = createTerrain({ ...cfg, river: false });
-    expect(terrainKey(cfg)).not.toBe(terrainKey({ ...cfg, river: false }));
-    expect(dry.heightAt(0, 0)).toBeTypeOf('number');
+    expect(Math.min(...samples)).toBeLessThan(wet.waterLevel);
+    expect(terrainKey(cfg)).not.toBe(terrainKey({ ...cfg, lakes: false }));
+  });
+
+  it('keys the terrain on every feature toggle', () => {
+    const keys = [cfg, { ...cfg, river: false }, { ...cfg, roads: false }].map(terrainKey);
+    expect(new Set(keys).size).toBe(3);
+  });
+
+  it('runs a river channel below the water level along its whole length', () => {
+    const t = createTerrain({ ...cfg, lakes: false });
+    const { river } = t.routes;
+    expect(river).not.toBeNull();
+    for (let s = -450; s <= 450; s += 30) {
+      const [x, z] = pointAt(river!, s);
+      expect(t.heightAt(x, z)).toBeLessThan(t.waterLevel);
+    }
+  });
+
+  it('extends the land far beyond the playable world', () => {
+    const t = createTerrain(cfg);
+    const coords = terrainCoords(t);
+    expect(coords[0]).toBeCloseTo(-t.extent);
+    expect(coords.at(-1)).toBeCloseTo(t.extent);
+    expect(t.extent).toBeGreaterThan(cfg.worldSize * 2);
+  });
+
+  it('drapes roads above the ground and the water', () => {
+    const t = createTerrain(cfg);
+    const ribbon = roadRibbon(t.routes.roads[0], t);
+    expect(ribbon.length).toBe(terrainCoords(t).length * 2);
+    ribbon.forEach(([, y]) => expect(y).toBeGreaterThan(t.waterLevel));
   });
 
   it('colours by elevation band', () => {
-    const t = createTerrain({ ...defaultConfig, river: false });
+    const t = createTerrain({ ...defaultConfig, lakes: false, river: false });
     const [sr, , sb] = colourAt(t.waterLevel, t);
     const [hr, hg, hb] = colourAt(t.waterLevel + t.cfg.terrainScale * 1.3 * 0.3, t);
     const [wr, wg, wb] = colourAt(t.waterLevel + t.cfg.terrainScale * 1.3, t);
@@ -193,6 +240,43 @@ describe('terrain', () => {
     expect(wr).toBeGreaterThan(0.9);
     expect(wg).toBeGreaterThan(0.9);
     expect(wb).toBeGreaterThan(0.9);
+  });
+});
+
+describe('routes', () => {
+  it('is deterministic and respects the feature toggles', () => {
+    const a = createRoutes(defaultConfig);
+    const b = createRoutes(defaultConfig);
+    expect(a.river!.offsetAt(123)).toBe(b.river!.offsetAt(123));
+    expect(a.roads).toHaveLength(2);
+    const none = createRoutes({ ...defaultConfig, river: false, roads: false });
+    expect(none.river).toBeNull();
+    expect(none.roads).toHaveLength(0);
+  });
+
+  it('measures zero distance on the route and grows away from it', () => {
+    const { river } = createRoutes(defaultConfig);
+    const [x, z] = pointAt(river!, 100);
+    expect(distanceTo(river!, x, z)).toBeCloseTo(0);
+    expect(distanceTo(river!, x, z + 50)).toBeGreaterThan(20);
+  });
+
+  it('has unit tangents for both axes', () => {
+    const { river, roads } = createRoutes(defaultConfig);
+    [river!, ...roads].forEach((route) => {
+      const [tx, tz] = tangentAt(route, 40);
+      expect(Math.hypot(tx, tz)).toBeCloseTo(1);
+    });
+  });
+
+  it('grades grid spacing outwards without gaps', () => {
+    const coords = gridCoords(500, 4500, 159, 40);
+    expect(coords).toHaveLength(159 + 1 + 80);
+    expect(coords.every((v, i) => i === 0 || v > coords[i - 1])).toBe(true);
+    expect(coords[0]).toBeCloseTo(-4500);
+    const centreStep = coords[120] - coords[119];
+    const edgeStep = coords.at(-1)! - coords.at(-2)!;
+    expect(edgeStep).toBeGreaterThan(centreStep * 5);
   });
 });
 
@@ -215,6 +299,31 @@ describe('waypoints', () => {
     const moved = retarget(points, taller);
     expect(moved.map((p) => [p[0], p[2]])).toEqual(points.map((p) => [p[0], p[2]]));
     expect(moved[0][1]).toBeCloseTo(taller.heightAt(points[0][0], points[0][2]) + CLEARANCE);
+  });
+});
+
+describe('wind streaks', () => {
+  const centre = [10, 50, -20] as const;
+
+  it('stays inside a box around the viewer and moves downwind', () => {
+    const [a] = streakSegment([0.3, 0.5, 0.7], 8, 0, 0, centre);
+    const [b] = streakSegment([0.3, 0.5, 0.7], 8, 0, 5, centre);
+    expect(b[0]).not.toBeCloseTo(a[0]);
+    [a, b].forEach((p) => {
+      expect(Math.abs(p[0] - centre[0])).toBeLessThanOrEqual(WIND_BOX / 2);
+      expect(Math.abs(p[2] - centre[2])).toBeLessThanOrEqual(WIND_BOX / 2);
+    });
+  });
+
+  it('trails behind the head, along the wind', () => {
+    const [head, tail] = streakSegment([0.1, 0.2, 0.3], 0, -10, 2, centre);
+    expect(tail[2]).toBeGreaterThan(head[2]);
+    expect(tail[0]).toBeCloseTo(head[0]);
+  });
+
+  it('collapses to a point in still air', () => {
+    const [head, tail] = streakSegment([0.1, 0.2, 0.3], 0, 0, 2, centre);
+    expect(tail).toEqual(head);
   });
 });
 
@@ -244,6 +353,30 @@ describe('weather', () => {
     expect(raining.rain).toBeGreaterThan(0);
     const [flipped] = stepWeather({ ...storm, phaseLeft: 0.01 }, defaultConfig, 0.1, 9);
     expect(flipped.phase).toBe('clear');
+  });
+
+  it('rains from the base of storm clouds down to the ground', () => {
+    const cloud = initial.clouds[0];
+    expect(isStormCloud(0)).toBe(true);
+    expect(isStormCloud(1)).toBe(false);
+    [0, 1.3, 4.7].forEach((time) => {
+      const [bottom, top] = rainStreak([0.2, 0.6, 0.9], cloud, 0, time);
+      expect(bottom[1]).toBeGreaterThanOrEqual(0);
+      expect(top[1]).toBeGreaterThan(bottom[1]);
+      expect(bottom[1]).toBeLessThanOrEqual(cloudBase(cloud));
+      expect(Math.abs(bottom[0] - cloud.x)).toBeLessThanOrEqual(cloud.radius);
+    });
+  });
+
+  it('strikes from underneath a storm cloud', () => {
+    const storm = startStorm(initial);
+    const cfg = { ...defaultConfig, windX: 0, windZ: 0 };
+    const [struck] = stepWeather({ ...storm, nextStrikeIn: 0 }, cfg, 0.1, 9);
+    const [sx, sz] = struck.strike!;
+    const beneath = struck.clouds.some(
+      (c, i) => isStormCloud(i) && Math.hypot(c.x - sx, c.z - sz) <= c.radius,
+    );
+    expect(beneath).toBe(true);
   });
 
   it('only lightning during storms', () => {
@@ -315,6 +448,21 @@ describe('sim', () => {
     expect(scaled.waypoints[0][1]).toBeCloseTo(
       newTerrain.heightAt(scaled.waypoints[0][0], scaled.waypoints[0][2]) + CLEARANCE,
     );
+  });
+
+  it('follows the river out and back', () => {
+    const onRiver = followRiver(start, terrain);
+    expect(onRiver.waypoints).toEqual(riverWaypoints(terrain));
+    expect(onRiver.waypoints.length).toBe(2 * 14 - 2);
+    const { river } = terrain.routes;
+    onRiver.waypoints.forEach(([x, , z]) => expect(distanceTo(river!, x, z)).toBeLessThan(1));
+    expect(onRiver.drone.wp).toBeLessThan(onRiver.waypoints.length);
+    expect(start.waypoints).not.toEqual(onRiver.waypoints);
+  });
+
+  it('leaves the path alone when there is no river', () => {
+    const dry = createTerrain({ ...defaultConfig, river: false });
+    expect(followRiver(start, dry)).toBe(start);
   });
 
   it('randomises the path and can trigger a storm', () => {
