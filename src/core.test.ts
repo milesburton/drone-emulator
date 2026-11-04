@@ -7,7 +7,11 @@ import {
   applyConfig,
   createSnapshot,
   defaultConfig,
+  drawSeed,
   followRiver,
+  MAX_SEED,
+  newMap,
+  parseSeed,
   pressureAt,
   randomisePath,
   step,
@@ -581,5 +585,66 @@ describe('attitude', () => {
       behind,
     );
     expect(Math.abs(after.drone.roll)).toBeGreaterThan(0.2);
+  });
+});
+
+describe('new maps', () => {
+  const seeds = Array.from({ length: 40 }, (_, i) => 101 + i * 2477);
+  const base = createSnapshot(defaultConfig, createTerrain(defaultConfig));
+
+  it('draws in-range seeds deterministically and threads the RNG', () => {
+    const [a, r] = drawSeed(7);
+    expect(drawSeed(7)).toEqual([a, r]);
+    expect(Number.isInteger(a) && a >= 0 && a <= MAX_SEED).toBe(true);
+    expect(drawSeed(r)[0]).not.toBe(a);
+  });
+
+  it('parses only whole seeds in range', () => {
+    expect(parseSeed(' 42 ')).toBe(42);
+    expect(parseSeed('')).toBeNull();
+    expect(parseSeed('4.5')).toBeNull();
+    expect(parseSeed('-1')).toBeNull();
+    expect(parseSeed(String(MAX_SEED + 1))).toBeNull();
+    expect(parseSeed('abc')).toBeNull();
+  });
+
+  it('is reproducible per seed and differs between seeds', () => {
+    const [s1, t1] = newMap(base, 500);
+    const [s2, t2] = newMap(base, 500);
+    const [, t3] = newMap(base, 501);
+    expect(s1).toEqual(s2);
+    expect(t1.heightAt(120, -80)).toBe(t2.heightAt(120, -80));
+    expect(t3.heightAt(120, -80)).not.toBe(t1.heightAt(120, -80));
+  });
+
+  it('puts the drone and estimator on the new first waypoint and keeps settings', () => {
+    const tweaked = { ...base, config: { ...base.config, windX: 11, terrainScale: 90 } };
+    const [s, t] = newMap(tweaked, 777);
+    expect(s.config).toMatchObject({ seed: 777, windX: 11, terrainScale: 90 });
+    expect(s.drone.pos).toEqual(s.waypoints[0]);
+    expect(s.drone.pos[1]).toBeGreaterThanOrEqual(t.heightAt(s.drone.pos[0], s.drone.pos[2]));
+    expect(s.drone.wp).toBe(1);
+    expect(s.ekf.x[0]).toBe(s.drone.pos[0]);
+  });
+
+  it.each(seeds)('seed %i gives a sound map', (seed) => {
+    const [s, t] = newMap(base, seed);
+    const river = t.routes.river;
+    if (!river) throw new Error('expected a river');
+    const half = s.config.worldSize / 2;
+    s.waypoints.forEach(([x, y, z]) => {
+      expect(Math.abs(x)).toBeLessThanOrEqual(half);
+      expect(Math.abs(z)).toBeLessThanOrEqual(half);
+      expect(y - t.heightAt(x, z)).toBeGreaterThanOrEqual(CLEARANCE - 1e-6);
+    });
+    // Roads cross the river on bridges, so only check dry ground away from the channel.
+    t.routes.roads.forEach((road) => {
+      Array.from({ length: 30 }, (_, i) => pointAt(road, -450 + i * 30))
+        .filter(([x, z]) => distanceTo(river, x, z) > 150)
+        .forEach(([x, z]) => expect(t.heightAt(x, z)).toBeGreaterThan(t.waterLevel));
+    });
+    const [rx, rz] = pointAt(river, 0);
+    expect(Math.max(Math.abs(rx), Math.abs(rz))).toBeLessThan(s.config.worldSize);
+    expect(t.heightAt(rx, rz)).toBeLessThan(t.waterLevel + 1);
   });
 });

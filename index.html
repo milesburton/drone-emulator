@@ -51,6 +51,15 @@
       input[type='range'] {
         width: 100%;
       }
+      .row {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 8px;
+      }
+      .row input {
+        width: 70px;
+        min-width: 0;
+      }
       button {
         margin: 8px 6px 0 0;
         padding: 6px 10px;
@@ -93,6 +102,11 @@
       <label><input id="lakes" type="checkbox" /> Lakes</label>
       <label><input id="river" type="checkbox" /> River</label>
       <label><input id="roads" type="checkbox" /> Roads</label>
+      <label for="seed">Map seed</label>
+      <div class="row">
+        <input id="seed" type="text" inputmode="numeric" maxlength="5" />
+        <button id="new-map" type="button">New Map</button>
+      </div>
       <button id="random-path" type="button">Random Path</button>
       <button id="river-path" type="button">River Path</button>
       <button id="storm" type="button">Storm</button>

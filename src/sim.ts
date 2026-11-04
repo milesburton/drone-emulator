@@ -1,7 +1,7 @@
 import { nextAltitude } from './altitude';
 import { level, nextAttitude } from './attitude';
 import { initEkf, predict, update, MEASUREMENT_MATRIX } from './ekf';
-import { gaussians } from './rng';
+import { gaussians, next } from './rng';
 import { createTerrain, terrainKey, type Terrain } from './terrain';
 import type { Config, Snapshot, Vec2, Vec3 } from './types';
 import { generateWaypoints, retarget, riverWaypoints } from './waypoints';
@@ -120,6 +120,42 @@ export const applyConfig = (
   if (terrainKey(config) === terrainKey(s.config)) return [{ ...s, config }, terrain];
   const next = createTerrain(config);
   return [{ ...s, config, waypoints: retarget(s.waypoints, next) }, next];
+};
+
+/** Largest seed the UI offers; keeps seeds short enough to read and share. */
+export const MAX_SEED = 99999;
+
+/** Draws a fresh map seed from the simulation RNG, returning it with the advanced RNG state. */
+export const drawSeed = (rng: number): readonly [number, number] => {
+  const [v, r] = next(rng);
+  return [Math.floor(v * (MAX_SEED + 1)), r];
+};
+
+/** Parses a user-supplied seed; anything not a whole number in range is rejected. */
+export const parseSeed = (text: string): number | null => {
+  const n = Number(text.trim());
+  return text.trim() !== '' && Number.isInteger(n) && n >= 0 && n <= MAX_SEED ? n : null;
+};
+
+/**
+ * Starts afresh on the map for `seed`: new terrain, new path, and the drone and its estimator
+ * placed on the first waypoint. Wind, sliders and toggles are kept.
+ */
+export const newMap = (s: Snapshot, seed: number): readonly [Snapshot, Terrain] => {
+  const config = { ...s.config, seed };
+  const terrain = createTerrain(config);
+  const [waypoints] = generateWaypoints(config, terrain, seed);
+  const pos = waypoints[0];
+  return [
+    {
+      ...s,
+      config,
+      waypoints,
+      drone: { ...s.drone, pos, wp: 1, heading: headingTo(pos, waypoints[1]) },
+      ekf: startEkf(pos),
+    },
+    terrain,
+  ];
 };
 
 export const randomisePath = (s: Snapshot, terrain: Terrain): Snapshot => {
