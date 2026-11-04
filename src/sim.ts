@@ -1,0 +1,107 @@
+import { initEkf, predict, update, MEASUREMENT_MATRIX } from './ekf';
+import { gaussians } from './rng';
+import { createTerrain, terrainKey, type Terrain } from './terrain';
+import type { Config, Snapshot, Vec2, Vec3 } from './types';
+import { CLEARANCE, generateWaypoints, retarget } from './waypoints';
+import { createWeather, startStorm, stepWeather } from './weather';
+
+export const AIR_SPEED = 25;
+export const ARRIVAL_RADIUS = 15;
+export const GPS_SIGMA = 3;
+export const BARO_SIGMA = 0.3;
+
+const PROCESS_VARIANCE = [0.05, 0.05, 0.02, 0.02, 1.5];
+const MEASUREMENT_VARIANCE = [GPS_SIGMA ** 2, GPS_SIGMA ** 2, BARO_SIGMA ** 2];
+
+export const defaultConfig: Config = {
+  seed: 1337,
+  windX: 6,
+  windZ: -3,
+  terrainScale: 60,
+  worldSize: 1000,
+  resolution: 160,
+  river: true,
+};
+
+/** International barometric formula, hPa at altitude `y` metres. */
+export const pressureAt = (y: number): number => 1013.25 * Math.exp(-y / 8400);
+
+const startEkf = (pos: Vec3) =>
+  initEkf([pos[0], pos[2], 0, 0, pressureAt(pos[1])], [25, 25, 100, 100, 1]);
+
+export const createSnapshot = (cfg: Config, terrain: Terrain): Snapshot => {
+  const [waypoints, r1] = generateWaypoints(cfg, terrain, cfg.seed);
+  const [weather, r2] = createWeather(cfg, r1);
+  const pos = waypoints[0];
+  return {
+    time: 0,
+    rng: r2,
+    config: cfg,
+    waypoints,
+    drone: { pos, wp: 1 },
+    ekf: startEkf(pos),
+    weather,
+  };
+};
+
+export const step = (s: Snapshot, terrain: Terrain, dt: number): Snapshot => {
+  const { config: cfg } = s;
+  const [px, py, pz] = s.drone.pos;
+  const target = s.waypoints[s.drone.wp];
+  const dx = target[0] - px;
+  const dz = target[2] - pz;
+  const distance = Math.hypot(dx, dz);
+  const air: Vec2 =
+    distance < 1e-6 ? [0, 0] : [(dx / distance) * AIR_SPEED, (dz / distance) * AIR_SPEED];
+
+  const nx = px + (air[0] + cfg.windX) * dt;
+  const nz = pz + (air[1] + cfg.windZ) * dt;
+  const ny = py + (terrain.heightAt(nx, nz) + CLEARANCE - py) * Math.min(1, dt * 2);
+  const wp = distance < ARRIVAL_RADIUS ? (s.drone.wp + 1) % s.waypoints.length : s.drone.wp;
+
+  const [noise, r1] = gaussians(s.rng, 3);
+  const measurement = [
+    nx + noise[0] * GPS_SIGMA,
+    nz + noise[1] * GPS_SIGMA,
+    pressureAt(ny) + noise[2] * BARO_SIGMA,
+  ];
+  const ekf = update(
+    predict(s.ekf, air, dt, PROCESS_VARIANCE),
+    measurement,
+    MEASUREMENT_MATRIX,
+    MEASUREMENT_VARIANCE,
+  );
+
+  const [weather, r2] = stepWeather(s.weather, cfg, dt, r1);
+
+  return {
+    ...s,
+    time: s.time + dt,
+    rng: r2,
+    drone: { pos: [nx, ny, nz], wp },
+    ekf,
+    weather,
+  };
+};
+
+/** Applies a config change, rebuilding terrain only if a terrain-affecting field changed. */
+export const applyConfig = (
+  s: Snapshot,
+  terrain: Terrain,
+  patch: Partial<Config>,
+): readonly [Snapshot, Terrain] => {
+  const config = { ...s.config, ...patch };
+  if (terrainKey(config) === terrainKey(s.config)) return [{ ...s, config }, terrain];
+  const next = createTerrain(config);
+  return [{ ...s, config, waypoints: retarget(s.waypoints, next) }, next];
+};
+
+export const randomisePath = (s: Snapshot, terrain: Terrain): Snapshot => {
+  const [waypoints, rng] = generateWaypoints(s.config, terrain, s.rng);
+  return { ...s, rng, waypoints, drone: { ...s.drone, wp: 0 } };
+};
+
+export const triggerStorm = (s: Snapshot): Snapshot => ({
+  ...s,
+  weather: startStorm(s.weather),
+});
