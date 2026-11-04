@@ -1,4 +1,5 @@
 import { nextAltitude } from './altitude';
+import { level, nextAttitude } from './attitude';
 import { initEkf, predict, update, MEASUREMENT_MATRIX } from './ekf';
 import { gaussians } from './rng';
 import { createTerrain, terrainKey, type Terrain } from './terrain';
@@ -53,7 +54,7 @@ export const createSnapshot = (cfg: Config, terrain: Terrain): Snapshot => {
     rng: r2,
     config: cfg,
     waypoints,
-    drone: { pos, wp: 1, heading: headingTo(pos, waypoints[1]) },
+    drone: { pos, wp: 1, heading: headingTo(pos, waypoints[1]), ...level },
     ekf: startEkf(pos),
     weather,
   };
@@ -75,6 +76,13 @@ export const step = (s: Snapshot, terrain: Terrain, dt: number): Snapshot => {
   const nx = px + (air[0] + cfg.windX) * dt;
   const nz = pz + (air[1] + cfg.windZ) * dt;
   const ny = nextAltitude(terrain, py, nx, nz, heading, dt);
+  const attitude = nextAttitude(
+    s.drone,
+    AIR_SPEED,
+    wrapAngle(heading - s.drone.heading) / dt,
+    (ny - py) / dt,
+    dt,
+  );
   const wp = distance < ARRIVAL_RADIUS ? (s.drone.wp + 1) % s.waypoints.length : s.drone.wp;
 
   const [noise, r1] = gaussians(s.rng, 3);
@@ -96,7 +104,7 @@ export const step = (s: Snapshot, terrain: Terrain, dt: number): Snapshot => {
     ...s,
     time: s.time + dt,
     rng: r2,
-    drone: { pos: [nx, ny, nz], wp, heading },
+    drone: { pos: [nx, ny, nz], wp, heading, ...attitude },
     ekf,
     weather,
   };

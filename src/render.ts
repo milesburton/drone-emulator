@@ -243,7 +243,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     rainGeometry.attributes.position.needsUpdate = true;
   };
 
-  const syncWind = (s: Snapshot): void => {
+  const syncWind = (s: Snapshot, terrain: Terrain): void => {
     const { windX, windZ } = s.config;
     const speed = windSpeed(windX, windZ);
     windLines.visible = speed > 0.5;
@@ -251,7 +251,14 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     (windLines.material as THREE.LineBasicMaterial).opacity =
       0.05 + (Math.min(speed, 20) / 20) * 0.15;
     streaks.forEach((offset, i) => {
-      const [head, tail] = streakSegment(offset, windX, windZ, s.time, s.drone.pos);
+      const [head, tail] = streakSegment(
+        offset,
+        windX,
+        windZ,
+        s.time,
+        s.drone.pos,
+        terrain.heightAt,
+      );
       windPositions.set([...head, ...tail], i * 6);
     });
     windGeometry.attributes.position.needsUpdate = true;
@@ -302,7 +309,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     const previous = cache.droneAt.clone();
     cache.droneAt.set(x, y, z);
     drone.position.copy(cache.droneAt);
-    drone.lookAt(x + Math.cos(s.drone.heading), y, z + Math.sin(s.drone.heading));
+    // The model faces +z; YXZ order applies roll, then pitch, then yaw. Three's +x rotation is nose-down.
+    drone.rotation.set(-s.drone.pitch, Math.PI / 2 - s.drone.heading, s.drone.roll, 'YXZ');
     rotors.forEach((rotor, i) => {
       rotor.rotation.y = s.time * ROTOR_SPEED * (i % 2 === 0 ? 1 : -1);
     });
@@ -312,7 +320,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     controls.target.copy(cache.droneAt);
     controls.update();
     syncRain(s, terrain);
-    syncWind(s);
+    syncWind(s, terrain);
     syncLightning(s, terrain);
     renderer.render(scene, camera);
   };

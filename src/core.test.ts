@@ -34,6 +34,7 @@ import {
   startStorm,
   stepWeather,
 } from './weather';
+import { bankFor, MAX_PITCH, MAX_ROLL, nextAttitude, pitchFor } from './attitude';
 import { streakSegment, WIND_BOX } from './wind';
 import type { Snapshot } from './types';
 
@@ -322,10 +323,11 @@ describe('waypoints', () => {
 
 describe('wind streaks', () => {
   const centre = [10, 50, -20] as const;
+  const flat = (): number => 0;
 
   it('stays inside a box around the viewer and moves downwind', () => {
-    const [a] = streakSegment([0.3, 0.5, 0.7], 8, 0, 0, centre);
-    const [b] = streakSegment([0.3, 0.5, 0.7], 8, 0, 5, centre);
+    const [a] = streakSegment([0.3, 0.5, 0.7], 8, 0, 0, centre, flat);
+    const [b] = streakSegment([0.3, 0.5, 0.7], 8, 0, 5, centre, flat);
     expect(b[0]).not.toBeCloseTo(a[0]);
     [a, b].forEach((p) => {
       expect(Math.abs(p[0] - centre[0])).toBeLessThanOrEqual(WIND_BOX / 2);
@@ -333,14 +335,21 @@ describe('wind streaks', () => {
     });
   });
 
+  it('rides the terrain: height above ground is constant and the tail follows the slope', () => {
+    const slope = (x: number): number => x * 0.5;
+    const [head, tail] = streakSegment([0.1, 0.5, 0.3], 10, 0, 3, centre, slope);
+    expect(head[1] - slope(head[0])).toBeCloseTo(tail[1] - slope(tail[0]));
+    expect(head[1]).not.toBeCloseTo(tail[1]);
+  });
+
   it('trails behind the head, along the wind', () => {
-    const [head, tail] = streakSegment([0.1, 0.2, 0.3], 0, -10, 2, centre);
+    const [head, tail] = streakSegment([0.1, 0.2, 0.3], 0, -10, 2, centre, flat);
     expect(tail[2]).toBeGreaterThan(head[2]);
     expect(tail[0]).toBeCloseTo(head[0]);
   });
 
   it('collapses to a point in still air', () => {
-    const [head, tail] = streakSegment([0.1, 0.2, 0.3], 0, 0, 2, centre);
+    const [head, tail] = streakSegment([0.1, 0.2, 0.3], 0, 0, 2, centre, flat);
     expect(tail).toEqual(head);
   });
 });
@@ -537,5 +546,40 @@ describe('smooth turning', () => {
     expect(turnTowards(0, -1, 0.1)).toBeCloseTo(-0.1);
     expect(turnTowards(3, -3, 0.1)).toBeCloseTo(3.1);
     expect(turnTowards(0, 0.05, 0.1)).toBeCloseTo(0.05);
+  });
+});
+
+describe('attitude', () => {
+  it('banks into a turn, right-wing-down for a right turn, and limits the bank', () => {
+    expect(bankFor(25, 0.2)).toBeGreaterThan(0);
+    expect(bankFor(25, -0.2)).toBeLessThan(0);
+    expect(bankFor(25, 0)).toBe(0);
+    expect(bankFor(25, 5)).toBe(MAX_ROLL);
+  });
+
+  it('pitches nose up to climb and down to descend, within limits', () => {
+    expect(pitchFor(8)).toBeGreaterThan(pitchFor(0));
+    expect(pitchFor(-6)).toBeLessThan(pitchFor(0));
+    expect(pitchFor(1000)).toBe(MAX_PITCH);
+    expect(pitchFor(-1000)).toBe(-MAX_PITCH);
+  });
+
+  it('eases towards the target rather than jumping', () => {
+    const start = { pitch: 0, roll: 0 };
+    const once = nextAttitude(start, 25, 0.5, 0, 0.05);
+    const target = bankFor(25, 0.5);
+    expect(once.roll).toBeGreaterThan(0);
+    expect(once.roll).toBeLessThan(target);
+  });
+
+  it('banks the simulated drone when it is turning towards a waypoint', () => {
+    const terrain = createTerrain(defaultConfig);
+    const s0 = createSnapshot(defaultConfig, terrain);
+    const behind = { ...s0, drone: { ...s0.drone, heading: s0.drone.heading + 2 } };
+    const after = Array.from({ length: 20 }).reduce<Snapshot>(
+      (s) => step(s, terrain, 0.05),
+      behind,
+    );
+    expect(Math.abs(after.drone.roll)).toBeGreaterThan(0.2);
   });
 });

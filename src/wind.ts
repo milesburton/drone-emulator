@@ -1,7 +1,9 @@
 import type { Vec3 } from './types';
 
 export const WIND_BOX = 500;
-const WIND_DEPTH = 140;
+/** Height band above the ground that the streaks occupy. */
+const WIND_DEPTH = 120;
+const WIND_FLOOR = 4;
 const WIND_VISUAL_SPEED = 4;
 const MAX_STREAK = 45;
 
@@ -15,22 +17,28 @@ const drift = (offset: number, centre: number, velocity: number, time: number): 
   wrap(offset * WIND_BOX + velocity * WIND_VISUAL_SPEED * time - centre + WIND_BOX / 2, WIND_BOX) -
   WIND_BOX / 2;
 
-/** One faint streak (head, tail) for a fixed offset; position is a pure function of time. */
+/**
+ * One faint streak (head, tail) for a fixed offset; position is a pure function of time.
+ * Height is measured above `groundAt`, so streaks ride up and over hills and down valleys,
+ * and the tail is seated on its own ground so a streak lies along the slope.
+ */
 export const streakSegment = (
   offset: Vec3,
   windX: number,
   windZ: number,
   time: number,
   centre: Vec3,
+  groundAt: (x: number, z: number) => number,
 ): readonly [Vec3, Vec3] => {
   const speed = windSpeed(windX, windZ);
   const x = drift(offset[0], centre[0], windX, time);
   const z = drift(offset[2], centre[2], windZ, time);
-  const y = centre[1] + (offset[1] - 0.5) * WIND_DEPTH;
+  const above = WIND_FLOOR + offset[1] * WIND_DEPTH;
   const length = Math.min(MAX_STREAK, 4 + speed * 2);
   const [ux, uz] = speed > 1e-6 ? [windX / speed, windZ / speed] : [0, 0];
+  const [tx, tz] = [x - ux * length, z - uz * length];
   return [
-    [x, y, z],
-    [x - ux * length, y, z - uz * length],
+    [x, groundAt(x, z) + above, z],
+    [tx, groundAt(tx, tz) + above, tz],
   ];
 };

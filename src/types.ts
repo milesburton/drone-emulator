@@ -42,6 +42,10 @@ export interface Drone {
   readonly wp: number;
   /** Direction of travel in radians on the ground plane, atan2(dz, dx). */
   readonly heading: number;
+  /** Nose-up pitch in radians; eased towards what the climb rate calls for. */
+  readonly pitch: number;
+  /** Bank in radians, right wing down positive; follows the turn rate. */
+  readonly roll: number;
 }
 
 export type Vec = readonly number[];
