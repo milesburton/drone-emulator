@@ -13,7 +13,6 @@ import {
   LAND_DESCENT,
   LAND_SPEED,
   CRASH_TIME,
-  LOST_TIME,
   MAX_ATTEMPTS,
   planRoute,
   routeLimit,
@@ -228,8 +227,9 @@ const account = (
  */
 const touchDown = (s: Snapshot, terrain: Terrain, down = false): Snapshot => {
   const m = s.mission;
-  const crashed = down && m.downBy === 'impact';
-  const lost = down && !crashed;
+  // Every flight that ends in the wreck being collected ended in an impact, so a crash outranks a power loss.
+  const crashed = down;
+  const powerless = down && m.downBy === 'power';
   const failed = m.aborted && !down;
   const attempt = failed ? m.attempt + 1 : 0;
   const replan = down || !failed || attempt >= MAX_ATTEMPTS;
@@ -247,12 +247,12 @@ const touchDown = (s: Snapshot, terrain: Terrain, down = false): Snapshot => {
       groundLeft: GROUND_TIME,
       aborted: false,
       attempt: replan ? 0 : attempt,
-      successes: m.successes + (failed || lost ? 0 : 1),
+      successes: m.successes + (failed || crashed ? 0 : 1),
       failures: m.failures + (failed ? 1 : 0),
-      lost: m.lost + (lost ? 1 : 0),
+      lost: m.lost + (powerless ? 1 : 0),
       crashed: m.crashed + (crashed ? 1 : 0),
       downBy: null,
-      outcome: crashed ? 'crashed' : lost ? 'lost' : failed ? 'failed' : 'success',
+      outcome: crashed ? 'crashed' : failed ? 'failed' : 'success',
     },
   };
 };
@@ -277,7 +277,7 @@ const loseFlight = (s: Snapshot, wind: Vec2, downBy: 'power' | 'impact'): Snapsh
       ...s.mission,
       phase: 'lost',
       downBy,
-      groundLeft: downBy === 'impact' ? CRASH_TIME : LOST_TIME,
+      groundLeft: CRASH_TIME,
     },
   };
 };
@@ -338,10 +338,12 @@ const transition = (s: Snapshot, motion: Motion, terrain: Terrain): Snapshot => 
 
 export const step = (s: Snapshot, terrain: Terrain, dt: number): Snapshot => {
   const { config: cfg } = s;
-  const inAir = s.mission.phase === 'cruise' || s.mission.phase === 'returning';
+  const { phase } = s.mission;
+  const inAir = phase === 'cruise' || phase === 'returning';
+  const aloft = inAir || phase === 'takeoff' || phase === 'landing';
   if (
-    inAir &&
-    (hasHitTerrain(s.drone.pos, terrain) || hitsCraft(s.drone.pos, cfg.seed, s.time, terrain))
+    (inAir && hasHitTerrain(s.drone.pos, terrain)) ||
+    (aloft && hitsCraft(s.drone.pos, cfg.seed, s.time, terrain))
   ) {
     const gust = gustAt(s.time, s.weather.rain);
     return loseFlight(s, [cfg.windX + gust[0], cfg.windZ + gust[1]], 'impact');

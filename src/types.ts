@@ -88,9 +88,9 @@ export interface Mission {
   readonly totalTrip: number;
   readonly successes: number;
   readonly failures: number;
-  /** Flights that went so far astray the drone could neither get home nor reach its target. */
+  /** Crashes that began with a flat battery: the drone could neither get home nor reach its target. A subset of `crashed`. */
   readonly lost: number;
-  /** Flights that ended by striking terrain or water, counted apart from running out of power. */
+  /** Flights that ended in a crash: terrain, water, another craft, or an unpowered fall. Outranks `lost`. */
   readonly crashed: number;
   /** What brought the drone down while in the 'lost' phase; null otherwise. */
   readonly downBy: 'power' | 'impact' | null;

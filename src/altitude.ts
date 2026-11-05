@@ -14,6 +14,18 @@ export const CLIMB_RESPONSE = 2;
 export const MAX_CLIMB = 15;
 export const MAX_DESCENT = 11;
 
+/** Reach of the airframe from its centre, metres: arms and rotors, so a hillside this close to the side still counts. */
+export const FOOTPRINT = 7;
+const FOOTPRINT_POINTS = 8;
+
+/** Highest ground under the airframe: the centre and a ring at the reach of the rotors. */
+export const groundBeneath = (terrain: Terrain, x: number, z: number): number =>
+  Array.from({ length: FOOTPRINT_POINTS }, (_, i) => (i / FOOTPRINT_POINTS) * Math.PI * 2).reduce(
+    (best, a) =>
+      Math.max(best, terrain.heightAt(x + Math.cos(a) * FOOTPRINT, z + Math.sin(a) * FOOTPRINT)),
+    terrain.heightAt(x, z),
+  );
+
 /** Highest ground within the look-ahead window along `heading`, so climbs start before the hill. */
 export const groundAhead = (terrain: Terrain, x: number, z: number, heading: number): number =>
   Array.from({ length: LOOKAHEAD / LOOKAHEAD_STEP + 1 }, (_, i) => i * LOOKAHEAD_STEP).reduce(
@@ -40,7 +52,7 @@ export const nextAltitude = (
 ): number => {
   const wanted = (targetAltitude(terrain, x, z, heading) - y) * Math.min(1, dt * CLIMB_RESPONSE);
   const eased = y + Math.max(-MAX_DESCENT * dt, Math.min(MAX_CLIMB * dt, wanted));
-  return Math.max(eased, terrain.heightAt(x, z) + MIN_CLEARANCE);
+  return Math.max(eased, groundBeneath(terrain, x, z) + MIN_CLEARANCE);
 };
 
 /** Waypoint seated at cruise clearance above the ground. */

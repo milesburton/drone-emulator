@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { CLEARANCE as CRUISE, MIN_CLEARANCE, flightLine, nextAltitude } from './altitude';
+import {
+  CLEARANCE as CRUISE,
+  MIN_CLEARANCE,
+  flightLine,
+  groundBeneath,
+  nextAltitude,
+} from './altitude';
 import { initEkf, MEASUREMENT_MATRIX, predict, update, windBiasOf } from './ekf';
 import { identity, inverse, mul, symmetrise, trace, transpose } from './matrix';
 import { gaussians, next, nextGaussian, ranges, toRandomFn } from './rng';
@@ -21,7 +27,7 @@ import {
 } from './sim';
 import { characterOf } from './character';
 import { craftAt } from './craft';
-import { hasImpacted, surfaceAt } from './crash';
+import { hasHitTerrain, hasImpacted, surfaceAt } from './crash';
 import {
   drainRate,
   ENERGY_BUDGET,
@@ -953,16 +959,18 @@ describe('mission', () => {
     expect(down.mission.downBy).toBe('power');
     expect(statusOf(down)).toBe('lost');
     const back = until(down, (s) => s.mission.phase === 'grounded');
+    // The unpowered fall ended in an impact, so it is a crash (that began with a power loss), never a success.
     expect(back.mission).toMatchObject({
+      crashed: 1,
       lost: 1,
       failures: 0,
       successes: 0,
-      outcome: 'lost',
+      outcome: 'crashed',
       battery: 1,
     });
     expect(back.drone.pos).toEqual(back.mission.home);
     expect(back.waypoints).not.toEqual(start.waypoints);
-    expect(statusOf(back)).toBe('lost');
+    expect(statusOf(back)).toBe('crashed');
     expect(until(back, (s) => s.mission.phase === 'takeoff').mission.outcome).toBeNull();
   });
 
@@ -1031,6 +1039,34 @@ describe('mission', () => {
     expect(after.mission.downBy).toBe('impact');
     const wrecked = until(after, (s) => hasImpacted(s.drone.crash));
     expect(wrecked.drone.pos[1]).toBeGreaterThanOrEqual(terrain.waterLevel - 1e-6);
+  });
+
+  it('crashes a drone whose rotor tip is in a hillside even though its centre is clear of the ground', () => {
+    const up = cruising(start);
+    const [x, y, z] = up.drone.pos;
+    // Find a spot where the ground beside the airframe rises above it while the ground below does not.
+    const spot = Array.from(
+      { length: 4000 },
+      (_, i) => [Math.cos(i * 2.4) * (i % 900) * 1.3, Math.sin(i * 2.4) * (i % 900) * 1.3] as const,
+    ).find(([px, pz]) => groundBeneath(terrain, px, pz) - terrain.heightAt(px, pz) > 6);
+    expect(spot).toBeDefined();
+    const [px, pz] = spot ?? [x, z];
+    const high = terrain.heightAt(px, pz) + 15;
+    expect(high).toBeLessThan(groundBeneath(terrain, px, pz) + 2);
+    expect(hasHitTerrain([px, high, pz], terrain)).toBe(true);
+    expect(hasHitTerrain([px, high + 40, pz], terrain)).toBe(false);
+    expect(y).toBeGreaterThan(0);
+  });
+
+  it('never scores a crash as a success', () => {
+    const up = cruising(start);
+    const [x, , z] = up.drone.pos;
+    const buried = {
+      ...up,
+      drone: { ...up.drone, pos: [x, terrain.heightAt(x, z) - 1, z] as const },
+    };
+    const back = until(tick(buried), (s) => s.mission.phase === 'grounded');
+    expect(back.mission).toMatchObject({ crashed: 1, successes: 0, failures: 0 });
   });
 
   it('crashes a flying drone that flies into another craft', () => {

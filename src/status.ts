@@ -1,3 +1,4 @@
+import { hasImpacted } from './crash';
 import type { Snapshot, Vec3 } from './types';
 
 export type DroneStatus =
@@ -36,7 +37,8 @@ export const statusOf = (s: Snapshot): DroneStatus => {
   const { phase, outcome } = s.mission;
   switch (phase) {
     case 'lost':
-      return s.mission.downBy === 'impact' ? 'crashed' : 'lost';
+      // Unpowered and still falling it is lost; once it has hit anything, a crash outranks that.
+      return s.mission.downBy === 'power' && !hasImpacted(s.drone.crash) ? 'lost' : 'crashed';
     case 'returning':
       return 'returning';
     case 'grounded':
