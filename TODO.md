@@ -6,4 +6,4 @@
 4. Add a crash animation.
 5. Planes flying across and above the clouds, periodically leaving a random chemtrail.
 6. PARTIAL (2026-11-05: 6 craft - quad, octo, RC plane - on circuits, collision = crash; no race layout yet). Multiple drones and RC planes around the area; different drone types (octocopters). Keep simple. Race layout later.
-7. Plan (not build) a much smaller training/sports FPV track with obstacles to pass through or avoid.
+7. PLAN WRITTEN (FPV-TRACK-PLAN.md, awaiting Miles on scale/manual flying/mode). Plan (not build) a much smaller training/sports FPV track with obstacles to pass through or avoid.
