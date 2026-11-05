@@ -227,7 +227,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   window.addEventListener('keydown', (e) => {
     const typing = e.target instanceof HTMLInputElement && e.target.type === 'text';
     if (!look.free || typing || !(e.code in MOVE_KEYS)) return;
-    // Ctrl+S, Ctrl+D and friends would otherwise open browser dialogs.
+    // Shift+W etc. are not reserved by Chrome or Firefox; still stop any default action.
     e.preventDefault();
     held.add(e.code);
   });

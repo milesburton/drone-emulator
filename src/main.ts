@@ -82,12 +82,12 @@ bindToggle('lakes');
 bindToggle('river');
 bindToggle('roads');
 
-// Holding Ctrl is free look; letting go snaps the camera back to the drone.
+// Holding Shift is free look (Ctrl+W closes the tab and can't be blocked); letting go snaps back to the drone.
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Control') view.setFreeLook(true);
+  if (e.key === 'Shift') view.setFreeLook(true);
 });
 window.addEventListener('keyup', (e) => {
-  if (e.key === 'Control') view.setFreeLook(false);
+  if (e.key === 'Shift') view.setFreeLook(false);
 });
 window.addEventListener('blur', () => view.setFreeLook(false));
 
