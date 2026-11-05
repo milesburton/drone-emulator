@@ -51,6 +51,13 @@ export const startStorm = (w: Weather): Weather => ({
   nextStrikeIn: 1,
 });
 
+export const clearStorm = (w: Weather): Weather => ({
+  ...w,
+  phase: 'clear',
+  phaseLeft: 30,
+  nextStrikeIn: 2,
+});
+
 /** Strongest storm gust, metres per second; close to the drone's airspeed, so a storm can push it well off course. */
 export const GUST_MAX = 20;
 

@@ -21,11 +21,17 @@ import { streakSegment, windSpeed } from './wind';
 export interface View {
   readonly draw: (snapshot: Snapshot, terrain: Terrain) => void;
   readonly resize: () => void;
+  /** Free look: drag turns the camera in place instead of orbiting the drone. */
+  readonly setFreeLook: (on: boolean) => void;
 }
 
 const RAIN_COUNT = 1800;
 const WIND_COUNT = 450;
 const ROTOR_SPEED = 60;
+const CAMERA_OFFSET = new THREE.Vector3(0, 18, 42);
+const LOOK_SPEED = 0.004;
+const LOOK_PITCH_LIMIT = Math.PI * 0.49;
+const DOLLY_SPEED = 0.05;
 const FOG_NEAR = 600;
 const FOG_FAR = 4200;
 const TINT_RATE = 3;
@@ -171,9 +177,41 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   scene.background = SKY_CLEAR.clone();
   scene.fog = new THREE.Fog(SKY_CLEAR.clone(), FOG_NEAR, FOG_FAR);
   const camera = new THREE.PerspectiveCamera(60, 1, 1, 12000);
-  camera.position.set(0, 220, 380);
   const controls = new OrbitControls(camera, canvas);
   controls.maxPolarAngle = Math.PI * 0.49;
+  controls.minDistance = 10;
+
+  const look = { free: false, framed: false, yaw: 0, pitch: 0 };
+  const aim = (): void => {
+    camera.quaternion.setFromEuler(new THREE.Euler(look.pitch, look.yaw, 0, 'YXZ'));
+  };
+  const setFreeLook = (on: boolean): void => {
+    look.free = on;
+    controls.enabled = !on;
+    if (on) {
+      const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+      look.yaw = euler.y;
+      look.pitch = euler.x;
+    }
+  };
+  canvas.addEventListener('pointermove', (e) => {
+    if (!look.free || e.buttons === 0) return;
+    look.yaw -= e.movementX * LOOK_SPEED;
+    look.pitch = Math.min(
+      Math.max(look.pitch - e.movementY * LOOK_SPEED, -LOOK_PITCH_LIMIT),
+      LOOK_PITCH_LIMIT,
+    );
+    aim();
+  });
+  canvas.addEventListener(
+    'wheel',
+    (e) => {
+      if (!look.free) return;
+      e.preventDefault();
+      camera.translateZ(e.deltaY * DOLLY_SPEED);
+    },
+    { passive: false },
+  );
 
   const ambient = new THREE.AmbientLight(0xffffff, 0.7);
   const sun = new THREE.DirectionalLight(0xffffff, 1.1);
@@ -433,9 +471,11 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     rotors.forEach((rotor, i) => {
       rotor.rotation.y = s.time * ROTOR_SPEED * (i % 2 === 0 ? 1 : -1);
     });
-    camera.position.add(cache.droneAt.clone().sub(previous));
+    if (look.framed) camera.position.add(cache.droneAt.clone().sub(previous));
+    else camera.position.copy(cache.droneAt).add(CAMERA_OFFSET);
+    look.framed = true;
     controls.target.copy(cache.droneAt);
-    controls.update();
+    if (!look.free) controls.update();
     syncRain(s, terrain);
     syncWind(s, terrain);
     syncLightning(s, terrain);
@@ -449,5 +489,5 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     camera.updateProjectionMatrix();
   };
 
-  return { draw, resize };
+  return { draw, resize, setFreeLook };
 };

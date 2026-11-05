@@ -129,6 +129,8 @@
       <label><input id="lakes" type="checkbox" /> Lakes</label>
       <label><input id="river" type="checkbox" /> River</label>
       <label><input id="roads" type="checkbox" /> Roads</label>
+      <label><input id="storm" type="checkbox" /> Storm</label>
+      <label><input id="free-look" type="checkbox" /> Free mouse look</label>
       <label for="seed">Map seed</label>
       <div class="row">
         <input id="seed" type="text" inputmode="numeric" maxlength="5" />
@@ -136,11 +138,11 @@
       </div>
       <button id="random-path" type="button">Random Path</button>
       <button id="river-path" type="button">River Path</button>
-      <button id="storm" type="button">Storm</button>
       <div class="legend">
         Drone colour = state (blue on course, orange off course, purple returning, green success,
         red lost), yellow flags = waypoints, chequered flag = finish (the pad), faint streaks =
-        wind. Drag to orbit.
+        wind. Drag to orbit, or turn on free mouse look to turn the camera in place (scroll to
+        move).
       </div>
     </div>
     <div id="hud-stack">

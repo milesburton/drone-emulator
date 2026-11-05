@@ -22,7 +22,7 @@ import { gaussians, next } from './rng';
 import { createTerrain, terrainKey, type Terrain } from './terrain';
 import type { Config, Mission, Snapshot, Vec2, Vec3 } from './types';
 import { retarget, riverWaypoints } from './waypoints';
-import { createWeather, gustAt, startStorm, stepWeather } from './weather';
+import { clearStorm, createWeather, gustAt, startStorm, stepWeather } from './weather';
 
 export const AIR_SPEED = 25;
 export const ARRIVAL_RADIUS = 15;
@@ -399,6 +399,11 @@ export const randomisePath = (s: Snapshot, terrain: Terrain): Snapshot => {
 export const triggerStorm = (s: Snapshot): Snapshot => ({
   ...s,
   weather: startStorm(s.weather),
+});
+
+export const calmStorm = (s: Snapshot): Snapshot => ({
+  ...s,
+  weather: clearStorm(s.weather),
 });
 
 const nearestWaypoint = (waypoints: readonly Vec3[], [px, , pz]: Vec3): number =>

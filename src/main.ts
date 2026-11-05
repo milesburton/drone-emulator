@@ -11,6 +11,7 @@ import {
   parseSeed,
   randomisePath,
   step,
+  calmStorm,
   triggerStorm,
 } from './sim';
 import { createTerrain } from './terrain';
@@ -72,6 +73,9 @@ bindToggle('lakes');
 bindToggle('river');
 bindToggle('roads');
 
+const freeLook = byId<HTMLInputElement>('free-look');
+freeLook.addEventListener('change', () => view.setFreeLook(freeLook.checked));
+
 const seedInput = byId<HTMLInputElement>('seed');
 const showSeed = (): void => {
   seedInput.value = String(model.snapshot.config.seed);
@@ -101,8 +105,10 @@ byId('random-path').addEventListener('click', () => {
 riverPath.addEventListener('click', () => {
   model.snapshot = followRiver(model.snapshot, model.terrain);
 });
-byId('storm').addEventListener('click', () => {
-  model.snapshot = triggerStorm(model.snapshot);
+// Weather also cycles on its own, so the box mirrors the live phase each frame.
+const stormBox = byId<HTMLInputElement>('storm');
+stormBox.addEventListener('change', () => {
+  model.snapshot = stormBox.checked ? triggerStorm(model.snapshot) : calmStorm(model.snapshot);
 });
 
 window.addEventListener('resize', view.resize);
@@ -112,6 +118,7 @@ const frame = (last: number) => (now: number) => {
   const dt = Math.min((now - last) / 1000, 0.05);
   model.snapshot = step(model.snapshot, model.terrain, dt);
   view.draw(model.snapshot, model.terrain);
+  stormBox.checked = model.snapshot.weather.phase === 'storm';
   hud.textContent = describe(model.snapshot);
   const style = STATUS_STYLE[statusOf(model.snapshot)];
   statusBadge.textContent = `${style.icon} ${style.label}`;
