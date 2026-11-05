@@ -49,6 +49,9 @@ const MOVE_KEYS: Readonly<Record<string, readonly [number, number]>> = {
   KeyA: [-1, 0],
   KeyD: [1, 0],
 };
+/** Noclip vertical flight: E rises, F lowers (neither is reserved by Chrome or Firefox). */
+const RISE_KEYS: Readonly<Record<string, number>> = { KeyE: 1, KeyF: -1 };
+const isFlyKey = (code: string): boolean => code in MOVE_KEYS || code in RISE_KEYS;
 const FOG_NEAR = 600;
 const FOG_FAR = 4200;
 const TINT_RATE = 3;
@@ -226,7 +229,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   });
   window.addEventListener('keydown', (e) => {
     const typing = e.target instanceof HTMLInputElement && e.target.type === 'text';
-    if (!look.free || typing || !(e.code in MOVE_KEYS)) return;
+    if (!look.free || typing || !isFlyKey(e.code)) return;
     // Shift+W etc. are not reserved by Chrome or Firefox; still stop any default action.
     e.preventDefault();
     held.add(e.code);
@@ -517,13 +520,17 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     const now = performance.now();
     const dt = Math.min((now - look.last) / 1000, 0.1);
     look.last = now;
-    if (look.framed) camera.position.add(cache.droneAt.clone().sub(previous));
-    else camera.position.copy(cache.droneAt).add(CAMERA_OFFSET);
-    look.framed = true;
+    // Free look is noclip: the camera is detached from the drone, so wind and flight never move it.
+    if (!look.free) {
+      if (look.framed) camera.position.add(cache.droneAt.clone().sub(previous));
+      else camera.position.copy(cache.droneAt).add(CAMERA_OFFSET);
+      look.framed = true;
+    }
     held.forEach((code) => {
       const [x, z] = MOVE_KEYS[code] ?? [0, 0];
       // Level with the ground like an FPS: pitch steers the view but not the walking direction.
       const step = MOVE_SPEED * dt;
+      camera.position.y += (RISE_KEYS[code] ?? 0) * step;
       camera.position.x += (x * Math.cos(look.yaw) + z * Math.sin(look.yaw)) * step;
       camera.position.z += (z * Math.cos(look.yaw) - x * Math.sin(look.yaw)) * step;
     });
