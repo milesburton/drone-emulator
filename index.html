@@ -71,9 +71,6 @@
         cursor: pointer;
       }
       #hud {
-        position: fixed;
-        right: 12px;
-        bottom: 12px;
         margin: 0;
         padding: 10px 12px;
         border-radius: 8px;
@@ -81,6 +78,26 @@
         font:
           12px/1.5 ui-monospace,
           monospace;
+      }
+      #hud-stack {
+        position: fixed;
+        right: 12px;
+        bottom: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      #battery {
+        height: 14px;
+        border-radius: 7px;
+        background: var(--panel);
+        overflow: hidden;
+      }
+      #battery-fill {
+        height: 100%;
+        width: 100%;
+        background: #34c759;
+        transition: width 0.2s;
       }
       .legend {
         margin-top: 10px;
@@ -114,7 +131,10 @@
         White = drone, red = EKF estimate, yellow = waypoints, faint streaks = wind. Drag to orbit.
       </div>
     </div>
-    <pre id="hud"></pre>
+    <div id="hud-stack">
+      <div id="battery" title="Battery"><div id="battery-fill"></div></div>
+      <pre id="hud"></pre>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

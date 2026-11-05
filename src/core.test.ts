@@ -11,6 +11,7 @@ import {
   followRiver,
   MAX_SEED,
   newMap,
+  AIR_SPEED,
   parseSeed,
   pressureAt,
   randomisePath,
@@ -19,6 +20,20 @@ import {
   turnTowards,
 } from './sim';
 import { characterOf } from './character';
+import {
+  drainRate,
+  failureReason,
+  findPad,
+  fitToRange,
+  GROUND_TIME,
+  MAX_ATTEMPTS,
+  planRoute,
+  RESERVE,
+  returnEnergy,
+  routeLength,
+  routeLimit,
+  shouldReturn,
+} from './mission';
 import { createRoutes, distanceTo, pointAt, tangentAt } from './routes';
 import {
   colourAt,
@@ -428,6 +443,15 @@ describe('weather', () => {
   });
 });
 
+/** The same snapshot but already up at cruise height over the pad, as if just taken off. */
+const cruising = (s: Snapshot): Snapshot => ({
+  ...s,
+  drone: { ...s.drone, pos: s.waypoints[0], wp: 1 },
+  mission: { ...s.mission, phase: 'cruise' },
+});
+const inFlight = (s: Snapshot): boolean =>
+  s.mission.phase === 'cruise' || s.mission.phase === 'returning';
+
 describe('sim', () => {
   const terrain = createTerrain(defaultConfig);
   const start = createSnapshot(defaultConfig, terrain);
@@ -472,9 +496,11 @@ describe('sim', () => {
     [1337, 7, 42].forEach((seed) => {
       const cfg = { ...defaultConfig, seed, terrainScale: 120 };
       const t = createTerrain(cfg);
-      fly(cfg, 6000).forEach(({ drone: { pos } }) =>
-        expect(pos[1] - t.heightAt(pos[0], pos[2])).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6),
-      );
+      fly(cfg, 6000)
+        .filter(inFlight)
+        .forEach(({ drone: { pos } }) =>
+          expect(pos[1] - t.heightAt(pos[0], pos[2])).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6),
+        );
     });
   });
 
@@ -524,10 +550,13 @@ describe('sim', () => {
 
   it('follows the river out and back', () => {
     const onRiver = followRiver(start, terrain);
-    expect(onRiver.waypoints).toEqual(riverWaypoints(terrain));
-    expect(onRiver.waypoints.length).toBe(2 * 14 - 2);
+    expect(onRiver.waypoints.slice(1)).toEqual(riverWaypoints(terrain));
+    expect(onRiver.waypoints[0]).toEqual(start.waypoints[0]);
+    expect(onRiver.waypoints.length).toBe(2 * 14 - 2 + 1);
     const { river } = terrain.routes;
-    onRiver.waypoints.forEach(([x, , z]) => expect(distanceTo(river!, x, z)).toBeLessThan(1));
+    onRiver.waypoints
+      .slice(1)
+      .forEach(([x, , z]) => expect(distanceTo(river!, x, z)).toBeLessThan(1));
     expect(onRiver.drone.wp).toBeLessThan(onRiver.waypoints.length);
     expect(start.waypoints).not.toEqual(onRiver.waypoints);
   });
@@ -540,7 +569,8 @@ describe('sim', () => {
   it('randomises the path and can trigger a storm', () => {
     const fresh = randomisePath(start, terrain);
     expect(fresh.waypoints).not.toEqual(start.waypoints);
-    expect(fresh.drone.wp).toBe(0);
+    expect(fresh.drone.wp).toBe(1);
+    expect(fresh.waypoints[0]).toEqual(start.waypoints[0]);
     expect(triggerStorm(start).weather.phase).toBe('storm');
   });
 });
@@ -579,7 +609,7 @@ describe('attitude', () => {
 
   it('banks the simulated drone when it is turning towards a waypoint', () => {
     const terrain = createTerrain(defaultConfig);
-    const s0 = createSnapshot(defaultConfig, terrain);
+    const s0 = cruising(createSnapshot(defaultConfig, terrain));
     const behind = { ...s0, drone: { ...s0.drone, heading: s0.drone.heading + 2 } };
     const after = Array.from({ length: 20 }).reduce<Snapshot>(
       (s) => step(s, terrain, 0.05),
@@ -622,7 +652,8 @@ describe('new maps', () => {
     const tweaked = { ...base, config: { ...base.config, windX: 11, terrainScale: 90 } };
     const [s, t] = newMap(tweaked, 777);
     expect(s.config).toMatchObject({ seed: 777, windX: 11, terrainScale: 90 });
-    expect(s.drone.pos).toEqual(s.waypoints[0]);
+    expect(s.drone.pos).toEqual(s.mission.home);
+    expect(s.mission.phase).toBe('grounded');
     expect(s.drone.pos[1]).toBeGreaterThanOrEqual(t.heightAt(s.drone.pos[0], s.drone.pos[2]));
     expect(s.drone.wp).toBe(1);
     expect(s.ekf.x[0]).toBe(s.drone.pos[0]);
@@ -696,9 +727,144 @@ describe('map character', () => {
         (acc) => [...acc, step(acc[acc.length - 1], t, 0.05)],
         [createSnapshot(cfg, t)],
       );
-      states.forEach(({ drone: { pos } }) =>
-        expect(pos[1] - t.heightAt(pos[0], pos[2])).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6),
-      );
+      states
+        .filter(inFlight)
+        .forEach(({ drone: { pos } }) =>
+          expect(pos[1] - t.heightAt(pos[0], pos[2])).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6),
+        );
     });
+  });
+});
+
+describe('mission', () => {
+  const calm = { ...defaultConfig, windX: 0, windZ: 0 };
+  const terrain = createTerrain(calm);
+  const start = createSnapshot(calm, terrain);
+  const tick = (s: Snapshot): Snapshot => step(s, terrain, 0.05);
+  const until = (s: Snapshot, done: (s: Snapshot) => boolean, limit = 40000): Snapshot =>
+    Array.from({ length: limit }).reduce<Snapshot>((acc) => (done(acc) ? acc : tick(acc)), s);
+
+  it('finds a dry, flat, in-bounds pad for every seed', () => {
+    Array.from({ length: 60 }, (_, i) => 101 + i * 2477).forEach((seed) => {
+      const t = createTerrain({ ...defaultConfig, seed });
+      const [x, y, z] = findPad(t, seed);
+      expect(findPad(t, seed)).toEqual([x, y, z]);
+      expect(y).toBeGreaterThan(t.waterLevel);
+      expect(Math.max(Math.abs(x), Math.abs(z))).toBeLessThanOrEqual(0.4 * t.cfg.worldSize);
+    });
+  });
+
+  it('plans routes that start over the pad and fit the battery', () => {
+    Array.from({ length: 30 }, (_, i) => i * 911).forEach((seed) => {
+      const t = createTerrain({ ...defaultConfig, seed });
+      const home = findPad(t, seed);
+      const [route] = planRoute(t.cfg, t, seed, home, AIR_SPEED);
+      expect(route[0][0]).toBe(home[0]);
+      expect(route[0][2]).toBe(home[2]);
+      expect(routeLength(route)).toBeLessThanOrEqual(routeLimit(AIR_SPEED));
+    });
+  });
+
+  it('trims a route to the limit but keeps the pad and one more point', () => {
+    const route = [
+      [0, 0, 0],
+      [100, 0, 0],
+      [100, 0, 100],
+      [0, 0, 100],
+    ] as const;
+    expect(fitToRange(route, 1000)).toEqual(route);
+    expect(fitToRange(route, 350)).toHaveLength(3);
+    expect(fitToRange(route, 1)).toHaveLength(2);
+  });
+
+  it('waits on the pad, with a steady battery, then takes off', () => {
+    expect(start.mission.phase).toBe('grounded');
+    const waiting = until(start, (s) => s.time >= GROUND_TIME - 0.5);
+    expect(waiting.mission.phase).toBe('grounded');
+    expect(waiting.mission.battery).toBe(1);
+    expect(waiting.drone.pos).toEqual(start.drone.pos);
+    expect(until(start, (s) => s.mission.phase !== 'grounded').time).toBeCloseTo(GROUND_TIME, 0);
+  });
+
+  it('flies a whole sortie, lands, scores it and plans a new route', () => {
+    const flown = until(start, (s) => s.mission.successes > 0);
+    expect(flown.mission).toMatchObject({
+      phase: 'grounded',
+      successes: 1,
+      failures: 0,
+      battery: 1,
+      attempt: 0,
+      aborted: false,
+    });
+    expect(flown.drone.pos).toEqual(flown.mission.home);
+    expect(flown.waypoints).not.toEqual(start.waypoints);
+    expect(flown.mission.totalTrip).toBeGreaterThan(0.9 * routeLength(start.waypoints));
+    expect(flown.mission.totalTrip).toBeLessThan(1.5 * routeLength(start.waypoints));
+  });
+
+  it('keeps the reserve on an ordinary sortie and meters the trip', () => {
+    const trips: number[] = [];
+    const lowest = Array.from({ length: 12000 }).reduce<{ s: Snapshot; min: number }>(
+      ({ s, min }) => {
+        const next = s.mission.successes > 0 ? s : tick(s);
+        if (next.mission.phase !== 'grounded') trips.push(next.mission.trip);
+        return {
+          s: next,
+          min: Math.min(min, next.mission.successes > 0 ? 1 : next.mission.battery),
+        };
+      },
+      { s: start, min: 1 },
+    );
+    expect(lowest.min).toBeGreaterThanOrEqual(RESERVE - 0.05);
+    expect(trips.every((t, i) => i === 0 || t >= trips[i - 1])).toBe(true);
+  });
+
+  it('turns back for the pad when the charge will only just get it home', () => {
+    const up = cruising(start);
+    const low = { ...up, mission: { ...up.mission, battery: 0.12 } };
+    const next = tick(low);
+    expect(next.mission).toMatchObject({ phase: 'returning', aborted: true });
+    expect(next.mission.lastFailure).toBe('battery');
+    expect(next.drone.wp).toBe(0);
+    const home = until(next, (s) => s.mission.phase === 'grounded');
+    expect(home.mission).toMatchObject({ failures: 1, successes: 0, attempt: 1, battery: 1 });
+    expect(home.waypoints).toEqual(start.waypoints);
+  });
+
+  it('retries a route, then plans a new one after the allowed failures', () => {
+    const sabotage = (s: Snapshot): Snapshot =>
+      s.mission.phase === 'cruise' && s.mission.battery > 0.5
+        ? { ...s, mission: { ...s.mission, battery: 0.12 } }
+        : s;
+    const result = Array.from({ length: 60000 }).reduce<Snapshot>(
+      (s) => (s.mission.failures >= MAX_ATTEMPTS ? s : tick(sabotage(s))),
+      start,
+    );
+    expect(result.mission).toMatchObject({ failures: MAX_ATTEMPTS, successes: 0, attempt: 0 });
+    expect(result.waypoints).not.toEqual(start.waypoints);
+  });
+
+  it('prices the way home higher in rain and into the wind', () => {
+    const pos = [300, 40, 0] as const;
+    const home = [0, 0, 0] as const;
+    const base = returnEnergy(pos, home, [0, 0], 0, AIR_SPEED);
+    expect(returnEnergy(pos, home, [0, 0], 1, AIR_SPEED)).toBeGreaterThan(base);
+    expect(returnEnergy(pos, home, [10, 0], 0, AIR_SPEED)).toBeGreaterThan(base);
+    expect(returnEnergy(pos, home, [-10, 0], 0, AIR_SPEED)).toBeLessThan(base);
+    expect(shouldReturn(base + RESERVE + 0.01, pos, home, [0, 0], 0, AIR_SPEED)).toBe(false);
+    expect(shouldReturn(base + RESERVE - 0.01, pos, home, [0, 0], 0, AIR_SPEED)).toBe(true);
+  });
+
+  it('drains nothing on the ground and more when working harder', () => {
+    expect(drainRate('grounded', 0, 0)).toBe(0);
+    expect(drainRate('landing', 0, 0)).toBeGreaterThan(drainRate('cruise', 0, 0));
+    expect(drainRate('cruise', 8, 0)).toBeGreaterThan(drainRate('cruise', 0, 0));
+    expect(drainRate('cruise', 0, 1)).toBeGreaterThan(drainRate('cruise', 0, 0));
+  });
+
+  it('names the likeliest reason for turning back', () => {
+    expect(failureReason([0, 0], 0.8)).toBe('rain');
+    expect(failureReason([12, 0], 0)).toBe('wind');
+    expect(failureReason([2, 1], 0)).toBe('battery');
   });
 });

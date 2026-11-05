@@ -48,6 +48,32 @@ export interface Drone {
   readonly roll: number;
 }
 
+export type Phase = 'grounded' | 'takeoff' | 'cruise' | 'returning' | 'landing';
+
+/** Why a flight was abandoned; only the cheap cases are told apart so far. */
+export type FailureReason = 'battery' | 'wind' | 'rain' | 'distance' | 'unknown';
+
+/** Everything about the current sortie: where the pad is, how much battery is left, how it is going. */
+export interface Mission {
+  readonly phase: Phase;
+  /** Launch pad, on the ground. The route starts and ends here. */
+  readonly home: Vec3;
+  /** Charge remaining, 0..1. */
+  readonly battery: number;
+  /** Seconds left on the pad before the next takeoff. */
+  readonly groundLeft: number;
+  /** True once the flight has turned back; the landing then counts as a failure. */
+  readonly aborted: boolean;
+  /** Failed attempts on the current route. */
+  readonly attempt: number;
+  /** Metres flown this flight, and in total. */
+  readonly trip: number;
+  readonly totalTrip: number;
+  readonly successes: number;
+  readonly failures: number;
+  readonly lastFailure: FailureReason | null;
+}
+
 export type Vec = readonly number[];
 export type Mat = readonly (readonly number[])[];
 
@@ -66,4 +92,5 @@ export interface Snapshot {
   readonly drone: Drone;
   readonly ekf: EkfState;
   readonly weather: Weather;
+  readonly mission: Mission;
 }

@@ -23,6 +23,7 @@ const byId = <T extends HTMLElement>(id: string): T => {
 
 const view = createView(byId<HTMLCanvasElement>('scene'));
 const hud = byId('hud');
+const batteryFill = byId('battery-fill');
 
 // The single owner of "current" state: the loop replaces these with new values.
 const initialConfig: Config = {
@@ -110,6 +111,9 @@ const frame = (last: number) => (now: number) => {
   model.snapshot = step(model.snapshot, model.terrain, dt);
   view.draw(model.snapshot, model.terrain);
   hud.textContent = describe(model.snapshot);
+  const { battery } = model.snapshot.mission;
+  batteryFill.style.width = `${battery * 100}%`;
+  batteryFill.style.background = battery > 0.3 ? '#34c759' : battery > 0.15 ? '#ff9f0a' : '#ff3b30';
   requestAnimationFrame(frame(now));
 };
 requestAnimationFrame((now) => requestAnimationFrame(frame(now)));
