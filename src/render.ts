@@ -4,6 +4,8 @@ import { flightLine } from './altitude';
 import { buildDrone } from './droneModel';
 import { buildFlag, faceDownwind } from './flags';
 import { STATUS_STYLE, statusOf } from './status';
+import { carsAt, createDrivers, type Driver } from './traffic';
+import { buildTraffic, type Traffic } from './trafficModel';
 import { buildForest } from './treeModel';
 import { placeTrees } from './trees';
 import { colourAt, roadRibbon, terrainCoords, type Terrain } from './terrain';
@@ -237,8 +239,13 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   const forest = new THREE.Group();
   scene.add(forest);
 
+  const traffic = new THREE.Group();
+  scene.add(traffic);
+
   const cache = {
     terrain: null as Terrain | null,
+    drivers: [] as readonly Driver[],
+    traffic: null as Traffic | null,
     mesh: null as THREE.Mesh | null,
     roads: [] as THREE.Mesh[],
     waypoints: null as readonly Vec3[] | null,
@@ -249,6 +256,16 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     time: 0,
   };
   const tintTarget = new THREE.Color();
+
+  const syncTraffic = (terrain: Terrain): void => {
+    traffic.children.slice().forEach((m) => {
+      traffic.remove(m);
+      disposeObject(m);
+    });
+    cache.drivers = createDrivers(terrain);
+    cache.traffic = buildTraffic(cache.drivers.length);
+    traffic.add(cache.traffic.group);
+  };
 
   const syncTerrain = (terrain: Terrain): void => {
     if (cache.terrain === terrain) return;
@@ -264,6 +281,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     cache.roads = terrain.routes.roads.map((road) => buildRoad(roadRibbon(road, terrain), laneMap));
     scene.add(cache.mesh, ...cache.roads);
     cache.terrain = terrain;
+    syncTraffic(terrain);
     water.scale.set(terrain.extent * 2, 1, terrain.extent * 2);
     water.position.y = terrain.waterLevel;
   };
@@ -389,6 +407,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     syncWaypoints(s.waypoints, terrain);
     syncPad(s.mission.home);
     syncForest(terrain, s.mission.home);
+    cache.traffic?.update(carsAt(terrain, cache.drivers, s.time));
     markers.children.forEach((flag) => faceDownwind(flag, s.config.windX, s.config.windZ));
     s.weather.clouds.forEach((c, i) => {
       clouds[i].position.set(c.x, c.y, c.z);
