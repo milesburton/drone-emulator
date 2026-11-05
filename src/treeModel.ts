@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { treeSway } from './swayMaterial';
 import { TREE_HEIGHT, type Tree, type TreeKind } from './trees';
 
 const paint = (geometry: THREE.BufferGeometry, colour: number): THREE.BufferGeometry => {
@@ -62,6 +63,7 @@ const KINDS: Record<TreeKind, () => THREE.BufferGeometry> = { conifer, broadleaf
 export const buildForest = (trees: readonly Tree[]): THREE.Group => {
   const group = new THREE.Group();
   const material = new THREE.MeshLambertMaterial({ vertexColors: true });
+  treeSway(material, TREE_HEIGHT);
   const dummy = new THREE.Object3D();
   (Object.keys(KINDS) as TreeKind[]).forEach((kind) => {
     const these = trees.filter((t) => t.kind === kind);

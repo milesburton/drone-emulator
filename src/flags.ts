@@ -1,8 +1,10 @@
 import * as THREE from 'three';
+import { flagSway } from './swayMaterial';
 
 const CLOTH_WIDTH = 14;
 const CLOTH_HEIGHT = 9;
 const MIN_POLE = 12;
+const CLOTH_SEGMENTS = 24;
 const CHEQUER_COLUMNS = 6;
 const CHEQUER_ROWS = 4;
 
@@ -60,6 +62,26 @@ const chequerTexture = (): THREE.CanvasTexture => {
 };
 
 /**
+ * The cloth subdivided along its length so it can ripple, with each vertex's distance from the
+ * pole stored for the shader. The back face is turned in the geometry, not the mesh, so the shader
+ * sees the same cloth-space vertices and both faces wave together.
+ */
+const clothGeometry = (back: boolean): THREE.PlaneGeometry => {
+  const geometry = new THREE.PlaneGeometry(CLOTH_WIDTH, CLOTH_HEIGHT, CLOTH_SEGMENTS, 4);
+  const x = geometry.getAttribute('position');
+  const along = Array.from({ length: x.count }, (_, i) => x.getX(i) + CLOTH_WIDTH / 2);
+  geometry.setAttribute('aAlong', new THREE.Float32BufferAttribute(along, 1));
+  geometry.setAttribute(
+    'aHoist',
+    new THREE.Float32BufferAttribute(
+      along.map((a) => a / CLOTH_WIDTH),
+      1,
+    ),
+  );
+  return back ? geometry.rotateY(Math.PI) : geometry;
+};
+
+/**
  * A flag on a pole standing on the ground with the cloth at `height` above it, where the route
  * passes: chequered for the finish, otherwise a magenta checkpoint carrying its number. The
  * cloth streams along local +x; turn the group about y to point it downwind.
@@ -72,12 +94,13 @@ export const buildFlag = (height: number, checkpoint: number | 'finish'): THREE.
   const material = new THREE.MeshBasicMaterial({
     map: checkpoint === 'finish' ? chequerTexture() : numberTexture(checkpoint),
   });
+  flagSway(material);
   // One plane per face, so the number reads the right way round from either side.
   const cloth = new THREE.Group();
-  const front = new THREE.Mesh(new THREE.PlaneGeometry(CLOTH_WIDTH, CLOTH_HEIGHT), material);
-  const back = new THREE.Mesh(new THREE.PlaneGeometry(CLOTH_WIDTH, CLOTH_HEIGHT), material);
-  back.rotation.y = Math.PI;
-  cloth.add(front, back);
+  cloth.add(
+    new THREE.Mesh(clothGeometry(false), material),
+    new THREE.Mesh(clothGeometry(true), material),
+  );
   cloth.position.set(CLOTH_WIDTH / 2 + 0.4, pole - CLOTH_HEIGHT / 2, 0);
   const finial = new THREE.Mesh(new THREE.SphereGeometry(0.8, 8, 6), POLE);
   finial.position.y = pole + 0.6;

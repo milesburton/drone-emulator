@@ -5,13 +5,23 @@ import { buildBridges } from './bridgeModel';
 import { buildDrone } from './droneModel';
 import { buildFlag, faceDownwind } from './flags';
 import { STATUS_STYLE, statusOf } from './status';
+import { disturbance, windStrength } from './sway';
+import { swayUniforms } from './swayMaterial';
 import { carsAt, createDrivers, type Driver } from './traffic';
 import { buildTraffic, type Traffic } from './trafficModel';
 import { buildForest } from './treeModel';
 import { placeTrees } from './trees';
 import { colourAt, roadRibbon, terrainCoords, type Terrain } from './terrain';
 import type { Snapshot, Vec3 } from './types';
-import { boltPoints, CLOUD_COUNT, cloudBase, isStormCloud, rainDrops, rainStreak } from './weather';
+import {
+  boltPoints,
+  CLOUD_COUNT,
+  cloudBase,
+  gustAt,
+  isStormCloud,
+  rainDrops,
+  rainStreak,
+} from './weather';
 import { streakSegment, windSpeed } from './wind';
 
 /**
@@ -472,6 +482,13 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     syncForest(terrain, s.mission.home);
     cache.traffic?.update(carsAt(terrain, cache.drivers, s.time));
     markers.children.forEach((flag) => faceDownwind(flag, s.config.windX, s.config.windZ));
+    const gust = gustAt(s.time, s.weather.rain);
+    const strength = windStrength(s.config.windX, s.config.windZ, gust);
+    const air = new THREE.Vector2(s.config.windX + gust[0], s.config.windZ + gust[1]);
+    swayUniforms.uTime.value = s.time;
+    swayUniforms.uWind.value = strength;
+    swayUniforms.uDir.value.copy(air.length() > 0.1 ? air.normalize() : air.set(0, 0));
+    const wobble = disturbance(s.time, strength);
     s.weather.clouds.forEach((c, i) => {
       clouds[i].position.set(c.x, c.y, c.z);
       clouds[i].scale.setScalar(c.radius);
@@ -479,9 +496,15 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     const [x, y, z] = s.drone.pos;
     const previous = cache.droneAt.clone();
     cache.droneAt.set(x, y, z);
-    drone.position.copy(cache.droneAt);
+    // Buffeting is drawn on the model only; the camera and the flight itself use the true position.
+    drone.position.copy(cache.droneAt).add(new THREE.Vector3(...wobble.offset));
     // The model faces +z; YXZ order applies roll, then pitch, then yaw. Three's +x rotation is nose-down.
-    drone.rotation.set(-s.drone.pitch, Math.PI / 2 - s.drone.heading, s.drone.roll, 'YXZ');
+    drone.rotation.set(
+      -(s.drone.pitch + wobble.pitch),
+      Math.PI / 2 - s.drone.heading + wobble.yaw,
+      s.drone.roll + wobble.roll,
+      'YXZ',
+    );
     // Fade the body towards the colour of the current state rather than snapping to it.
     const fade = 1 - Math.exp(-TINT_RATE * Math.min(Math.max(s.time - cache.time, 0), 0.5));
     tintTarget.setHex(STATUS_STYLE[statusOf(s)].colour);
