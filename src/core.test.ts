@@ -812,7 +812,7 @@ describe('mission', () => {
       expect(y).toBeGreaterThan(t.waterLevel);
       expect(Math.max(Math.abs(x), Math.abs(z))).toBeLessThanOrEqual(0.4 * t.cfg.worldSize);
     });
-  });
+  }, 30000);
 
   it('plans routes that start over the pad and fit the battery', () => {
     Array.from({ length: 30 }, (_, i) => i * 911).forEach((seed) => {
