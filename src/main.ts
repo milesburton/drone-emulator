@@ -73,8 +73,14 @@ bindToggle('lakes');
 bindToggle('river');
 bindToggle('roads');
 
-const freeLook = byId<HTMLInputElement>('free-look');
-freeLook.addEventListener('change', () => view.setFreeLook(freeLook.checked));
+// Holding Ctrl is free look; letting go snaps the camera back to the drone.
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Control') view.setFreeLook(true);
+});
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'Control') view.setFreeLook(false);
+});
+window.addEventListener('blur', () => view.setFreeLook(false));
 
 const seedInput = byId<HTMLInputElement>('seed');
 const showSeed = (): void => {

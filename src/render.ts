@@ -21,7 +21,7 @@ import { streakSegment, windSpeed } from './wind';
 export interface View {
   readonly draw: (snapshot: Snapshot, terrain: Terrain) => void;
   readonly resize: () => void;
-  /** Free look: drag turns the camera in place instead of orbiting the drone. */
+  /** Free look: drag turns the camera in place and WASD flies it; turning it off returns to the drone. */
   readonly setFreeLook: (on: boolean) => void;
 }
 
@@ -194,6 +194,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     camera.quaternion.setFromEuler(new THREE.Euler(look.pitch, look.yaw, 0, 'YXZ'));
   };
   const setFreeLook = (on: boolean): void => {
+    if (on === look.free) return;
     look.free = on;
     controls.enabled = !on;
     held.clear();
@@ -215,7 +216,10 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   });
   window.addEventListener('keydown', (e) => {
     const typing = e.target instanceof HTMLInputElement && e.target.type === 'text';
-    if (look.free && !typing && e.code in MOVE_KEYS) held.add(e.code);
+    if (!look.free || typing || !(e.code in MOVE_KEYS)) return;
+    // Ctrl+S, Ctrl+D and friends would otherwise open browser dialogs.
+    e.preventDefault();
+    held.add(e.code);
   });
   window.addEventListener('keyup', (e) => held.delete(e.code));
   window.addEventListener('blur', () => held.clear());
