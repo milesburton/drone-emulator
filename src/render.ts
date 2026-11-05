@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { flightLine } from './altitude';
 import { buildDrone } from './droneModel';
-import { positionOf } from './ekf';
 import { colourAt, roadRibbon, terrainCoords, type Terrain } from './terrain';
 import type { Snapshot, Vec3 } from './types';
 import { boltPoints, CLOUD_COUNT, cloudBase, isStormCloud, rainDrops, rainStreak } from './weather';
@@ -22,6 +21,8 @@ const WIND_COUNT = 450;
 const ROTOR_SPEED = 60;
 const FOG_NEAR = 600;
 const FOG_FAR = 4200;
+const PAD_RADIUS = 8;
+const PAD_LIFT = 0.15;
 const CLOUD_WHITE = new THREE.Color(0xffffff);
 const CLOUD_STORM = new THREE.Color(0x4f5560);
 const SKY_CLEAR = new THREE.Color(0x87b8e8);
@@ -67,6 +68,22 @@ const buildRoad = (ribbon: readonly Vec3[]): THREE.Mesh => {
     geometry,
     new THREE.MeshLambertMaterial({ color: 0x46464c, side: THREE.DoubleSide }),
   );
+};
+
+/** A flat grey disc with a yellow ring, lying just above the ground at the launch pad. */
+const buildPad = (): THREE.Group => {
+  const group = new THREE.Group();
+  const disc = new THREE.Mesh(
+    new THREE.CircleGeometry(PAD_RADIUS, 32).rotateX(-Math.PI / 2),
+    new THREE.MeshLambertMaterial({ color: 0x5a5a60 }),
+  );
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(PAD_RADIUS * 0.75, PAD_RADIUS * 0.88, 32).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: 0xffd60a }),
+  );
+  ring.position.y = 0.05;
+  group.add(disc, ring);
+  return group;
 };
 
 const disposeObject = (obj: THREE.Object3D): void => {
@@ -124,11 +141,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   scene.add(water);
 
   const { group: drone, rotors } = buildDrone();
-  const estimate = new THREE.Mesh(
-    new THREE.SphereGeometry(4, 12, 8),
-    new THREE.MeshBasicMaterial({ color: 0xff3b30 }),
-  );
-  scene.add(drone, estimate);
+  scene.add(drone);
 
   const clouds = Array.from({ length: CLOUD_COUNT }, buildCloud);
   clouds.forEach((c) => scene.add(c));
@@ -173,11 +186,16 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   );
   scene.add(pathLine);
 
+  const pad = buildPad();
+  pad.visible = false;
+  scene.add(pad);
+
   const cache = {
     terrain: null as Terrain | null,
     mesh: null as THREE.Mesh | null,
     roads: [] as THREE.Mesh[],
     waypoints: null as readonly Vec3[] | null,
+    home: null as Vec3 | null,
     droneAt: new THREE.Vector3(),
   };
 
@@ -218,6 +236,13 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     pathLine.geometry.dispose();
     pathLine.geometry = new THREE.BufferGeometry().setFromPoints(loop);
     cache.waypoints = waypoints;
+  };
+
+  const syncPad = (home: Vec3): void => {
+    if (cache.home === home) return;
+    pad.position.set(home[0], home[1] + PAD_LIFT, home[2]);
+    pad.visible = true;
+    cache.home = home;
   };
 
   const syncRain = (s: Snapshot, terrain: Terrain): void => {
@@ -301,6 +326,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   const draw = (s: Snapshot, terrain: Terrain): void => {
     syncTerrain(terrain);
     syncWaypoints(s.waypoints, terrain);
+    syncPad(s.mission.home);
     s.weather.clouds.forEach((c, i) => {
       clouds[i].position.set(c.x, c.y, c.z);
       clouds[i].scale.setScalar(c.radius);
@@ -314,8 +340,6 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     rotors.forEach((rotor, i) => {
       rotor.rotation.y = s.time * ROTOR_SPEED * (i % 2 === 0 ? 1 : -1);
     });
-    const [ex, ez] = positionOf(s.ekf);
-    estimate.position.set(ex, y + 8, ez);
     camera.position.add(cache.droneAt.clone().sub(previous));
     controls.target.copy(cache.droneAt);
     controls.update();
