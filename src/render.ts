@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { flightLine } from './altitude';
 import { buildBridges } from './bridgeModel';
+import { hasImpacted } from './crash';
+import { buildCrashFx } from './crashFx';
 import { buildDrone } from './droneModel';
 import { buildFlag, faceDownwind } from './flags';
 import { STATUS_STYLE, statusOf } from './status';
@@ -38,6 +40,8 @@ export interface View {
 const RAIN_COUNT = 1800;
 const WIND_COUNT = 450;
 const ROTOR_SPEED = 60;
+/** Body colour of a wreck. */
+const CHARRED = 0x1c1c1e;
 const CAMERA_OFFSET = new THREE.Vector3(0, 18, 42);
 const LOOK_SPEED = 0.004;
 const LOOK_PITCH_LIMIT = Math.PI * 0.49;
@@ -259,6 +263,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
 
   const { group: drone, rotors, tint } = buildDrone();
   scene.add(drone);
+  const crashFx = buildCrashFx();
+  scene.add(crashFx.group);
 
   const clouds = Array.from({ length: CLOUD_COUNT }, buildCloud);
   clouds.forEach((c) => scene.add(c));
@@ -507,23 +513,37 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     const previous = cache.droneAt.clone();
     cache.droneAt.set(x, y, z);
     // Buffeting is drawn on the model only; the camera and the flight itself use the true position.
-    drone.position.copy(cache.droneAt).add(new THREE.Vector3(...wobble.offset));
+    const crashed = s.drone.crash;
+    // A dead drone is not buffeted by the autopilot's wind model; it just falls.
+    drone.position.copy(cache.droneAt);
+    if (!crashed) drone.position.add(new THREE.Vector3(...wobble.offset));
     // The model faces +z; YXZ order applies roll, then pitch, then yaw. Three's +x rotation is nose-down.
     drone.rotation.set(
-      -(s.drone.pitch + wobble.pitch),
-      Math.PI / 2 - s.drone.heading + wobble.yaw,
-      s.drone.roll + wobble.roll,
+      -(s.drone.pitch + (crashed ? 0 : wobble.pitch)),
+      Math.PI / 2 - s.drone.heading + (crashed ? 0 : wobble.yaw),
+      s.drone.roll + (crashed ? 0 : wobble.roll),
       'YXZ',
     );
     // Fade the body towards the colour of the current state rather than snapping to it.
     const fade = 1 - Math.exp(-TINT_RATE * Math.min(Math.max(s.time - cache.time, 0), 0.5));
-    tintTarget.setHex(STATUS_STYLE[statusOf(s)].colour);
+    tintTarget.setHex(hasImpacted(crashed) ? CHARRED : STATUS_STYLE[statusOf(s)].colour);
     tint.color.lerp(tintTarget, fade);
     tint.emissive.copy(tint.color).multiplyScalar(0.3);
     cache.time = s.time;
     rotors.forEach((rotor, i) => {
-      rotor.rotation.y = s.time * ROTOR_SPEED * (i % 2 === 0 ? 1 : -1);
+      // Without power the rotors stop and their translucent discs vanish; one is torn off on impact.
+      if (!crashed) rotor.rotation.y = s.time * ROTOR_SPEED * (i % 2 === 0 ? 1 : -1);
+      rotor.children.forEach((part, k) => {
+        part.visible = k > 0 || !crashed;
+      });
+      rotor.visible = !(i === 0 && hasImpacted(crashed));
     });
+    crashFx.update(
+      crashed?.since ?? null,
+      [x, y, z],
+      [s.config.windX + gust[0], s.config.windZ + gust[1]],
+      terrain,
+    );
     const now = performance.now();
     const dt = Math.min((now - look.last) / 1000, 0.1);
     look.last = now;

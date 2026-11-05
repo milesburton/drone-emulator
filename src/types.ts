@@ -48,6 +48,18 @@ export interface Drone {
   readonly pitch: number;
   /** Bank in radians, right wing down positive; follows the turn rate. */
   readonly roll: number;
+  /** Present from the moment power is lost until the wreck is collected. */
+  readonly crash?: Crash;
+}
+
+/** An unpowered drone falling, tumbling and (once down) lying wrecked. */
+export interface Crash {
+  /** Velocity over the ground, m/s. */
+  readonly vel: Vec3;
+  /** Tumble rates in rad/s: pitch, roll, yaw. */
+  readonly spin: Vec3;
+  /** Seconds since impact; null while still in the air. */
+  readonly since: number | null;
 }
 
 export type Phase = 'grounded' | 'takeoff' | 'cruise' | 'returning' | 'landing' | 'lost';

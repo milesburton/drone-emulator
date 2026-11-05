@@ -9,10 +9,10 @@ export const MIN_CLEARANCE = 15;
 export const LOOKAHEAD = 200;
 const LOOKAHEAD_STEP = 10;
 /** Altitude response rate, per second; lower is gentler. */
-export const CLIMB_RESPONSE = 1.2;
+export const CLIMB_RESPONSE = 2;
 /** Vertical speed limits in m/s; the drone can sink faster than it can climb. */
-export const MAX_CLIMB = 10;
-export const MAX_DESCENT = 7;
+export const MAX_CLIMB = 15;
+export const MAX_DESCENT = 11;
 
 /** Highest ground within the look-ahead window along `heading`, so climbs start before the hill. */
 export const groundAhead = (terrain: Terrain, x: number, z: number, heading: number): number =>
@@ -50,8 +50,8 @@ export const seatWaypoint = (terrain: Terrain, x: number, z: number): Vec3 => [
   z,
 ];
 
-/** Radius of the tightest turn the drone makes: airspeed over maximum turn rate (25 m/s / 0.7 rad/s). */
-export const TURN_RADIUS = 36;
+/** Radius of the tightest turn the drone makes: airspeed over maximum turn rate (36 m/s / 1.2 rad/s). */
+export const TURN_RADIUS = 30;
 /** Samples either side that the drawn altitude is spread over. */
 const ALTITUDE_SPREAD = 3;
 

@@ -20,6 +20,7 @@ import {
   turnTowards,
 } from './sim';
 import { characterOf } from './character';
+import { hasImpacted } from './crash';
 import {
   drainRate,
   failureReason,
@@ -945,6 +946,50 @@ describe('mission', () => {
     expect(back.waypoints).not.toEqual(start.waypoints);
     expect(statusOf(back)).toBe('lost');
     expect(until(back, (s) => s.mission.phase === 'takeoff').mission.outcome).toBeNull();
+  });
+
+  it('crashes a drone that runs out of power: it falls, tumbles, hits the terrain and lies still', () => {
+    const up = cruising(start);
+    const stranded = {
+      ...up,
+      drone: { ...up.drone, pos: [900, 60, 900] as const },
+      mission: { ...up.mission, battery: 0.01 },
+    };
+    const down = tick(stranded);
+    expect(down.drone.crash).toMatchObject({ since: null });
+    expect(down.drone.crash?.vel[0]).toBeGreaterThan(0 - 1e-9 - 100);
+    const falling = Array.from({ length: 10 }).reduce<Snapshot>((s) => tick(s), down);
+    expect(falling.drone.pos[1]).toBeLessThan(down.drone.pos[1]);
+    expect(falling.drone.roll).not.toBe(down.drone.roll);
+    // Momentum carries it on rather than dropping it straight down.
+    expect(
+      falling.drone.pos[0] !== down.drone.pos[0] || falling.drone.pos[2] !== down.drone.pos[2],
+    ).toBe(true);
+    const wrecked = until(down, (s) => hasImpacted(s.drone.crash));
+    expect(wrecked.drone.pos[1]).toBeCloseTo(
+      terrain.heightAt(wrecked.drone.pos[0], wrecked.drone.pos[2]),
+      6,
+    );
+    expect(wrecked.mission.phase).toBe('lost');
+    const later = Array.from({ length: 20 }).reduce<Snapshot>((s) => tick(s), wrecked);
+    expect(later.drone.pos).toEqual(wrecked.drone.pos);
+    expect(later.drone.crash?.since).toBeGreaterThan(0.9);
+    // The wreck is only collected a fixed time after the impact, not after the power loss.
+    const collected = until(wrecked, (s) => s.mission.phase === 'grounded');
+    expect(collected.time - wrecked.time).toBeGreaterThanOrEqual(5 - 0.1);
+    expect(collected.drone.crash).toBeUndefined();
+  });
+
+  it('crashes a flying drone that finds itself in the terrain', () => {
+    const up = cruising(start);
+    const [x, , z] = up.drone.pos;
+    const buried = {
+      ...up,
+      drone: { ...up.drone, pos: [x, terrain.heightAt(x, z) - 1, z] as const },
+    };
+    const after = tick(buried);
+    expect(after.mission.phase).toBe('lost');
+    expect(after.drone.crash).toBeDefined();
   });
 
   it('reports the state of the flight for colour and badge', () => {

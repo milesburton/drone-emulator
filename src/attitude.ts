@@ -1,5 +1,5 @@
-/** Steepest bank the flight controller will command, radians (about 35 degrees). */
-export const MAX_ROLL = 0.6;
+/** Steepest bank the flight controller will command, radians (about 50 degrees). */
+export const MAX_ROLL = 0.9;
 /** Steepest pitch either way, radians (about 20 degrees). */
 export const MAX_PITCH = 0.35;
 /** Nose-down lean of a quadcopter in forward flight, radians. */
@@ -7,7 +7,7 @@ export const CRUISE_LEAN = 0.1;
 /** Radians of pitch per m/s of vertical speed. */
 const PITCH_PER_CLIMB = 0.03;
 /** Time constant of the attitude response, seconds; a quad tilts quickly but not instantly. */
-const ATTITUDE_LAG = 0.35;
+const ATTITUDE_LAG = 0.2;
 const GRAVITY = 9.81;
 
 export interface Attitude {

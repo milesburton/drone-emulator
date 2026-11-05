@@ -23,9 +23,9 @@ export const GROUND_TIME = 3;
 export const LOST_TIME = 5;
 /** Failed attempts on one route before a new one is planned. */
 export const MAX_ATTEMPTS = 3;
-export const TAKEOFF_CLIMB = 4;
-export const LAND_DESCENT = 3;
-export const LAND_SPEED = 8;
+export const TAKEOFF_CLIMB = 8;
+export const LAND_DESCENT = 5;
+export const LAND_SPEED = 12;
 const MIN_GROUNDSPEED = 5;
 const LAND_APPROACH_TIME = 3;
 const HIGH_WIND = 8;

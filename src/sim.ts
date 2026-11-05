@@ -1,5 +1,6 @@
 import { CLEARANCE, nextAltitude, seatWaypoint } from './altitude';
 import { nextAttitude } from './attitude';
+import { beginCrash, fall, hasHitTerrain, hasImpacted } from './crash';
 import { initEkf, predict, update, MEASUREMENT_MATRIX } from './ekf';
 import {
   drainRate,
@@ -20,14 +21,14 @@ import {
 } from './mission';
 import { gaussians, next } from './rng';
 import { createTerrain, terrainKey, type Terrain } from './terrain';
-import type { Config, Mission, Snapshot, Vec2, Vec3 } from './types';
+import type { Config, Crash, Mission, Snapshot, Vec2, Vec3 } from './types';
 import { retarget, riverWaypoints } from './waypoints';
 import { clearStorm, createWeather, gustAt, startStorm, stepWeather } from './weather';
 
-export const AIR_SPEED = 25;
-export const ARRIVAL_RADIUS = 15;
+export const AIR_SPEED = 36;
+export const ARRIVAL_RADIUS = 20;
 /** Fastest the drone may turn, radians per second, so course changes are smooth arcs. */
-export const MAX_TURN_RATE = 0.7;
+export const MAX_TURN_RATE = 1.2;
 export const GPS_SIGMA = 3;
 export const BARO_SIGMA = 0.3;
 
@@ -98,6 +99,8 @@ interface Motion {
   readonly air: Vec2;
   /** Within reach of the current target. */
   readonly arrived: boolean;
+  /** Set while the drone is falling or wrecked; replaces the flight attitude. */
+  readonly wreck?: { readonly pitch: number; readonly roll: number; readonly crash: Crash };
 }
 
 /** Holding station on the ground: the autopilot cancels the wind, so ground velocity is zero. */
@@ -157,12 +160,24 @@ const land = (s: Snapshot, terrain: Terrain, dt: number): Motion => {
   };
 };
 
-/** A lost drone comes down where it is and stays there until it is collected. */
+/** A lost drone has no power: it falls, tumbles and lies where it hits until it is collected. */
 const crash = (s: Snapshot, terrain: Terrain, dt: number): Motion => {
-  const [px, py, pz] = s.drone.pos;
-  const ground = terrain.heightAt(px, pz);
-  const ny = Math.max(ground, py - 2 * LAND_DESCENT * dt);
-  return holding(s, [px, ny, pz], s.drone.heading, ny <= ground && s.mission.groundLeft <= 0);
+  const gust = gustAt(s.time, s.weather.rain);
+  const down = fall(
+    s.drone,
+    s.drone.crash ?? beginCrash([0, 0, 0], [0, 0.5, 0.5]),
+    terrain,
+    [s.config.windX + gust[0], s.config.windZ + gust[1]],
+    dt,
+  );
+  return {
+    pos: down.pos,
+    heading: down.heading,
+    airSpeed: 0,
+    air: [down.crash.vel[0] - s.config.windX, down.crash.vel[2] - s.config.windZ],
+    arrived: down.crash.since !== null && s.mission.groundLeft <= 0,
+    wreck: { pitch: down.pitch, roll: down.roll, crash: down.crash },
+  };
 };
 
 const moveFor = (s: Snapshot, terrain: Terrain, dt: number): Motion => {
@@ -184,8 +199,15 @@ const moveFor = (s: Snapshot, terrain: Terrain, dt: number): Motion => {
 };
 
 /** Charge, trip meter and pad countdown after moving from `from` to `to`. */
-const account = (m: Mission, from: Vec3, to: Vec3, rain: number, dt: number): Mission => {
-  const waiting = m.phase === 'grounded' || m.phase === 'lost';
+const account = (
+  m: Mission,
+  from: Vec3,
+  to: Vec3,
+  rain: number,
+  dt: number,
+  impacted: boolean,
+): Mission => {
+  const waiting = m.phase === 'grounded' || (m.phase === 'lost' && impacted);
   const flown =
     m.phase === 'grounded' ? 0 : Math.hypot(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
   const climb = (to[1] - from[1]) / dt;
@@ -229,6 +251,26 @@ const touchDown = (s: Snapshot, terrain: Terrain, lost = false): Snapshot => {
   };
 };
 
+/** Power gone mid-air (flat battery or a strike on the terrain): momentum carries on while the airframe starts to tumble. */
+const loseFlight = (s: Snapshot, wind: Vec2): Snapshot => {
+  const [a, r1] = next(s.rng);
+  const [b, r2] = next(r1);
+  const [c, r3] = next(r2);
+  const h = s.drone.heading;
+  return {
+    ...s,
+    rng: r3,
+    drone: {
+      ...s.drone,
+      crash: beginCrash(
+        [Math.cos(h) * AIR_SPEED + wind[0], 0, Math.sin(h) * AIR_SPEED + wind[1]],
+        [a, b, c],
+      ),
+    },
+    mission: { ...s.mission, phase: 'lost', groundLeft: LOST_TIME },
+  };
+};
+
 /** Phase changes that follow from where the drone has got to. */
 const transition = (s: Snapshot, motion: Motion, terrain: Terrain): Snapshot => {
   const m = s.mission;
@@ -239,6 +281,7 @@ const transition = (s: Snapshot, motion: Motion, terrain: Terrain): Snapshot => 
     ...s,
     mission: { ...m, phase, ...patch },
   });
+  const powerLoss = (): Snapshot => loseFlight(s, wind);
   switch (m.phase) {
     case 'grounded':
       return m.groundLeft <= 0 ? goTo('takeoff', { trip: 0, outcome: null }) : s;
@@ -249,7 +292,7 @@ const transition = (s: Snapshot, motion: Motion, terrain: Terrain): Snapshot => 
       if (
         isLost(m.battery, s.drone.pos, m.home, s.waypoints[wp], wind, s.weather.rain, AIR_SPEED)
       ) {
-        return goTo('lost', { groundLeft: LOST_TIME });
+        return powerLoss();
       }
       if (
         wp !== 0 &&
@@ -272,7 +315,7 @@ const transition = (s: Snapshot, motion: Motion, terrain: Terrain): Snapshot => 
     }
     case 'returning':
       if (isLost(m.battery, s.drone.pos, m.home, m.home, wind, s.weather.rain, AIR_SPEED)) {
-        return goTo('lost', { groundLeft: LOST_TIME });
+        return powerLoss();
       }
       return motion.arrived ? goTo('landing') : s;
     case 'lost':
@@ -284,17 +327,24 @@ const transition = (s: Snapshot, motion: Motion, terrain: Terrain): Snapshot => 
 
 export const step = (s: Snapshot, terrain: Terrain, dt: number): Snapshot => {
   const { config: cfg } = s;
+  const inAir = s.mission.phase === 'cruise' || s.mission.phase === 'returning';
+  if (inAir && hasHitTerrain(s.drone.pos, terrain)) {
+    const gust = gustAt(s.time, s.weather.rain);
+    return loseFlight(s, [cfg.windX + gust[0], cfg.windZ + gust[1]]);
+  }
   const motion = moveFor(s, terrain, dt);
   const flying = s.mission.phase !== 'grounded' && s.mission.phase !== 'lost';
-  const attitude = flying
-    ? nextAttitude(
-        s.drone,
-        motion.airSpeed,
-        wrapAngle(motion.heading - s.drone.heading) / dt,
-        (motion.pos[1] - s.drone.pos[1]) / dt,
-        dt,
-      )
-    : ground;
+  const attitude = motion.wreck
+    ? motion.wreck
+    : flying
+      ? nextAttitude(
+          s.drone,
+          motion.airSpeed,
+          wrapAngle(motion.heading - s.drone.heading) / dt,
+          (motion.pos[1] - s.drone.pos[1]) / dt,
+          dt,
+        )
+      : ground;
 
   const [noise, r1] = gaussians(s.rng, 3);
   const measurement = [
@@ -314,10 +364,24 @@ export const step = (s: Snapshot, terrain: Terrain, dt: number): Snapshot => {
     ...s,
     time: s.time + dt,
     rng: r2,
-    drone: { ...s.drone, pos: motion.pos, heading: motion.heading, ...attitude },
+    drone: {
+      ...s.drone,
+      pos: motion.pos,
+      heading: motion.heading,
+      pitch: attitude.pitch,
+      roll: attitude.roll,
+      ...(motion.wreck ? { crash: motion.wreck.crash } : {}),
+    },
     ekf,
     weather,
-    mission: account(s.mission, s.drone.pos, motion.pos, weather.rain, dt),
+    mission: account(
+      s.mission,
+      s.drone.pos,
+      motion.pos,
+      weather.rain,
+      dt,
+      hasImpacted(s.drone.crash),
+    ),
   };
   return transition(moved, motion, terrain);
 };
