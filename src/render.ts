@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { flightLine } from './altitude';
+import { buildBridges } from './bridgeModel';
 import { buildDrone } from './droneModel';
 import { buildFlag, faceDownwind } from './flags';
 import { STATUS_STYLE, statusOf } from './status';
@@ -278,7 +279,11 @@ export const createView = (canvas: HTMLCanvasElement): View => {
       disposeObject(road);
     });
     cache.mesh = buildTerrainMesh(terrain);
-    cache.roads = terrain.routes.roads.map((road) => buildRoad(roadRibbon(road, terrain), laneMap));
+    cache.roads = terrain.routes.roads.flatMap((road) => {
+      const ribbon = roadRibbon(road, terrain);
+      const bridges = buildBridges(ribbon, terrain);
+      return bridges ? [buildRoad(ribbon, laneMap), bridges] : [buildRoad(ribbon, laneMap)];
+    });
     scene.add(cache.mesh, ...cache.roads);
     cache.terrain = terrain;
     syncTraffic(terrain);

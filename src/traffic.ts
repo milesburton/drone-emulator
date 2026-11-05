@@ -1,6 +1,6 @@
 import { pointAt, tangentAt } from './routes';
 import { toRandomFn } from './rng';
-import { BRIDGE_CLEARANCE, ROAD_LIFT, type Terrain } from './terrain';
+import type { Terrain } from './terrain';
 
 export interface Car {
   readonly x: number;
@@ -67,7 +67,7 @@ export const carsAt = (
     const z = pz + tx * LANE_OFFSET * d.lane;
     return {
       x,
-      y: Math.max(terrain.heightAt(x, z), terrain.waterLevel + BRIDGE_CLEARANCE) + ROAD_LIFT,
+      y: terrain.deckAt(road, s),
       z,
       yaw: Math.atan2(tx * heading, tz * heading),
       paint: d.paint,

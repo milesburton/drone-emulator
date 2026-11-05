@@ -50,24 +50,106 @@ export const seatWaypoint = (terrain: Terrain, x: number, z: number): Vec3 => [
   z,
 ];
 
+/** Radius of the tightest turn the drone makes: airspeed over maximum turn rate (25 m/s / 0.7 rad/s). */
+export const TURN_RADIUS = 36;
+/** Samples either side that the drawn altitude is spread over. */
+const ALTITUDE_SPREAD = 3;
+
+type Point = readonly [number, number];
+
+const unit = ([x, z]: Point): Point => {
+  const length = Math.hypot(x, z) || 1;
+  return [x / length, z / length];
+};
+
+/** The corner at `b` replaced by the arc the drone flies; reversals and near-straight corners stay sharp. */
+const fillet = (a: Point, b: Point, c: Point, radius: number): readonly Point[] => {
+  const u1 = unit([a[0] - b[0], a[1] - b[1]]);
+  const u2 = unit([c[0] - b[0], c[1] - b[1]]);
+  const angle = Math.acos(Math.max(-1, Math.min(1, u1[0] * u2[0] + u1[1] * u2[1])));
+  if (angle < 0.35 || angle > Math.PI - 0.02) return [b];
+  const reach = Math.min(
+    radius / Math.tan(angle / 2),
+    0.5 * Math.hypot(a[0] - b[0], a[1] - b[1]),
+    0.5 * Math.hypot(c[0] - b[0], c[1] - b[1]),
+  );
+  const r = reach * Math.tan(angle / 2);
+  const bisector = unit([u1[0] + u2[0], u1[1] + u2[1]]);
+  const centre: Point = [
+    b[0] + (bisector[0] * r) / Math.sin(angle / 2),
+    b[1] + (bisector[1] * r) / Math.sin(angle / 2),
+  ];
+  const from = Math.atan2(b[1] + u1[1] * reach - centre[1], b[0] + u1[0] * reach - centre[0]);
+  const to = Math.atan2(b[1] + u2[1] * reach - centre[1], b[0] + u2[0] * reach - centre[0]);
+  const sweep = ((to - from + 3 * Math.PI) % (2 * Math.PI)) - Math.PI;
+  const steps = Math.max(2, Math.ceil((Math.abs(sweep) * r) / 6));
+  return Array.from({ length: steps + 1 }, (_, k): Point => {
+    const theta = from + (sweep * k) / steps;
+    return [centre[0] + Math.cos(theta) * r, centre[1] + Math.sin(theta) * r];
+  });
+};
+
+/** Evenly spaced points round the closed polyline. */
+const resample = (loop: readonly Point[], spacing: number): readonly Point[] => {
+  const lengths = loop.map(([x, z], i) => {
+    const [nx, nz] = loop[(i + 1) % loop.length];
+    return Math.hypot(nx - x, nz - z);
+  });
+  const total = lengths.reduce((sum, l) => sum + l, 0);
+  const count = Math.max(2, Math.round(total / spacing));
+  return Array.from({ length: count }, (_, k): Point => {
+    const target = (total * k) / count;
+    const edge = lengths.findIndex(
+      (_, i) => lengths.slice(0, i + 1).reduce((sum, l) => sum + l, 0) > target,
+    );
+    const i = edge < 0 ? lengths.length - 1 : edge;
+    const before = lengths.slice(0, i).reduce((sum, l) => sum + l, 0);
+    const t = lengths[i] === 0 ? 0 : (target - before) / lengths[i];
+    const [x, z] = loop[i];
+    const [nx, nz] = loop[(i + 1) % loop.length];
+    return [x + (nx - x) * t, z + (nz - z) * t];
+  });
+};
+
+/** Mean over `spread` neighbours either side, wrapping round the loop. */
+const spreadRound = (values: readonly number[], spread: number, pick: 'max' | 'mean'): number[] =>
+  values.map((_, i) => {
+    const window = Array.from(
+      { length: 2 * spread + 1 },
+      (__, k) => values[(i + k - spread + values.length * 2) % values.length],
+    );
+    return pick === 'max'
+      ? Math.max(...window)
+      : window.reduce((sum, v) => sum + v, 0) / window.length;
+  });
+
 /**
- * The route drawn between waypoints: each leg sampled every `spacing` metres with the same
- * look-ahead rule the drone follows, so the line matches where the drone will really fly.
+ * The route drawn between waypoints: corners rounded to the drone's turning circle, and an
+ * altitude that follows the same look-ahead rule the drone uses, spread so it never steps.
  */
 export const flightLine = (
   waypoints: readonly Vec3[],
   terrain: Terrain,
   spacing = 20,
-): readonly Vec3[] =>
-  waypoints.flatMap(([ax, , az], i) => {
-    const [bx, , bz] = waypoints[(i + 1) % waypoints.length];
-    const length = Math.hypot(bx - ax, bz - az);
-    const heading = Math.atan2(bz - az, bx - ax);
-    const count = Math.max(1, Math.ceil(length / spacing));
-    return Array.from({ length: count }, (_, k): Vec3 => {
-      const t = k / count;
-      const x = ax + (bx - ax) * t;
-      const z = az + (bz - az) * t;
-      return [x, targetAltitude(terrain, x, z, heading), z];
-    });
+): readonly Vec3[] => {
+  const corners = waypoints.map(([x, , z]): Point => [x, z]);
+  const outline = corners.flatMap((b, i) =>
+    fillet(
+      corners[(i + corners.length - 1) % corners.length],
+      b,
+      corners[(i + 1) % corners.length],
+      TURN_RADIUS,
+    ),
+  );
+  const points = resample(outline, spacing);
+  const wanted = points.map(([x, z], i) => {
+    const [nx, nz] = points[(i + 1) % points.length];
+    return targetAltitude(terrain, x, z, Math.atan2(nz - z, nx - x));
   });
+  const altitude = spreadRound(
+    spreadRound(wanted, ALTITUDE_SPREAD, 'max'),
+    ALTITUDE_SPREAD,
+    'mean',
+  );
+  return points.map(([x, z], i): Vec3 => [x, altitude[i], z]);
+};

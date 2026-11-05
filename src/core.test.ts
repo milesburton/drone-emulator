@@ -255,18 +255,48 @@ describe('terrain', () => {
     ribbon.forEach(([, y]) => expect(y).toBeGreaterThan(t.waterLevel));
   });
 
-  it('keeps roads on dry land except where they bridge the river', () => {
-    [1337, 7, 42, 2024].forEach((seed) => {
+  it('lays roads clear of the ground and the water, bridging whatever is below', () => {
+    [1337, 7, 42, 2024, 9001, 31337].forEach((seed) => {
       const t = createTerrain({ ...defaultConfig, seed });
-      const river = t.routes.river;
       t.routes.roads.forEach((road) =>
         terrainCoords(t)
           .filter((s) => Math.abs(s) <= t.cfg.worldSize / 2)
           .forEach((s) => {
             const [x, z] = pointAt(road, s);
-            const nearRiver = river !== null && distanceTo(river, x, z) < 45;
-            if (!nearRiver) expect(t.heightAt(x, z)).toBeGreaterThan(t.waterLevel);
+            expect(t.deckAt(road, s)).toBeGreaterThan(t.waterLevel + 2);
+            expect(t.deckAt(road, s) - t.heightAt(x, z)).toBeGreaterThan(0.1);
           }),
+      );
+    });
+  });
+
+  it('keeps road grades gentle and free of kinks', () => {
+    [1337, 7, 42, 9001].forEach((seed) => {
+      const t = createTerrain({ ...defaultConfig, seed });
+      t.routes.roads.forEach((road) => {
+        const decks = Array.from({ length: 160 }, (_, i) => t.deckAt(road, -500 + i * 6.25));
+        decks.slice(1).forEach((y, i) => expect(Math.abs(y - decks[i]) / 6.25).toBeLessThan(0.2));
+        decks
+          .slice(2)
+          .forEach((y, i) => expect(Math.abs(y - 2 * decks[i + 1] + decks[i])).toBeLessThan(1.5));
+      });
+    });
+  });
+
+  it('levels the ground under the launch pad', () => {
+    [1, 7, 42, 1234, 5555, 31337].forEach((seed) => {
+      const t = createTerrain({ ...defaultConfig, seed });
+      const [px, py, pz] = t.pad ?? [0, 0, 0];
+      [
+        [0, 0],
+        [8, 0],
+        [-8, 0],
+        [0, 8],
+        [0, -8],
+        [6, 6],
+        [-6, -6],
+      ].forEach(([dx, dz]) =>
+        expect(Math.abs(t.heightAt(px + dx, pz + dz) - py)).toBeLessThan(0.5),
       );
     });
   });
@@ -675,11 +705,13 @@ describe('new maps', () => {
       expect(Math.abs(z)).toBeLessThanOrEqual(half);
       expect(y - t.heightAt(x, z)).toBeGreaterThanOrEqual(CLEARANCE - 1e-6);
     });
-    // Roads cross the river on bridges, so only check dry ground away from the channel.
+    // Roads never dip into the water or the ground: wet or low stretches are bridges.
     t.routes.roads.forEach((road) => {
-      Array.from({ length: 30 }, (_, i) => pointAt(road, -450 + i * 30))
-        .filter(([x, z]) => distanceTo(river, x, z) > 150)
-        .forEach(([x, z]) => expect(t.heightAt(x, z)).toBeGreaterThan(t.waterLevel));
+      Array.from({ length: 30 }, (_, i) => -450 + i * 30).forEach((s) => {
+        const [x, z] = pointAt(road, s);
+        expect(t.deckAt(road, s)).toBeGreaterThan(t.waterLevel + 2);
+        expect(t.deckAt(road, s) - t.heightAt(x, z)).toBeGreaterThan(0.1);
+      });
     });
     const [rx, rz] = pointAt(river, 0);
     expect(Math.max(Math.abs(rx), Math.abs(rz))).toBeLessThan(s.config.worldSize);
