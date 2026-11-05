@@ -19,7 +19,7 @@ export interface Tree {
 /** Nominal height of a scale-1 tree; below the drone's minimum clearance even when fully grown. */
 export const TREE_HEIGHT = 11;
 const MAX_SCALE = 1.25;
-const CELL = 22;
+const CELL = 13;
 const REACH = 0.7;
 const ROAD_MARGIN = 6;
 const RIVER_MARGIN = 30;

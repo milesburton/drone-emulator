@@ -60,9 +60,9 @@ export const treeSway = (material: THREE.Material, height: number): void => {
     #endif
     float h = clamp(position.y / ${height.toFixed(1)}, 0.0, 1.0);
     float swing = 0.55 + 0.3 * sin(uTime * 1.3 + phase) + 0.15 * sin(uTime * 3.1 + phase * 1.7);
-    float lean = h * h * uWind * swing * ${(height * 0.14).toFixed(2)};
+    float lean = h * h * (0.2 + uWind) * swing * ${(height * 0.4).toFixed(2)};
     mvPosition.xz += uDir * lean;
-    mvPosition.xz += vec2(sin(uTime * 2.3 + phase), cos(uTime * 2.7 + phase)) * h * h * (0.05 + uWind * 0.18);
+    mvPosition.xz += vec2(sin(uTime * 2.3 + phase), cos(uTime * 2.7 + phase)) * h * h * (0.12 + uWind * 0.45);
     mvPosition = modelViewMatrix * mvPosition;
     gl_Position = projectionMatrix * mvPosition;`,
   );
