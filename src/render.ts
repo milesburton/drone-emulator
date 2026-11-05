@@ -51,11 +51,49 @@ const buildTerrainMesh = (terrain: Terrain): THREE.Mesh => {
   return new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ vertexColors: true }));
 };
 
-const buildRoad = (ribbon: readonly Vec3[]): THREE.Mesh => {
+/** Metres of road covered by one repeat of the lane texture (one dash plus one gap). */
+const LANE_REPEAT = 12;
+
+/** Asphalt with solid white edge lines and a dashed centre line; u runs across, v along the road. */
+const laneTexture = (): THREE.CanvasTexture => {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = '#46464c';
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = '#e8e8e0';
+    ctx.fillRect(size * 0.05, 0, size * 0.04, size);
+    ctx.fillRect(size * 0.91, 0, size * 0.04, size);
+    ctx.fillRect(size * 0.48, 0, size * 0.04, size * 0.5);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+};
+
+const buildRoad = (ribbon: readonly Vec3[], texture: THREE.Texture): THREE.Mesh => {
   const geometry = new THREE.BufferGeometry().setFromPoints(
     ribbon.map(([x, y, z]) => new THREE.Vector3(x, y, z)),
   );
   const quads = ribbon.length / 2 - 1;
+  const along = Array.from({ length: quads + 1 }).reduce<number[]>((acc, _, q) => {
+    if (q === 0) return [0];
+    const [ax, , az] = ribbon[2 * q - 2];
+    const [bx, , bz] = ribbon[2 * q];
+    return [...acc, acc[q - 1] + Math.hypot(bx - ax, bz - az) / LANE_REPEAT];
+  }, []);
+  geometry.setAttribute(
+    'uv',
+    new THREE.Float32BufferAttribute(
+      along.flatMap((v) => [0, v, 1, v]),
+      2,
+    ),
+  );
   geometry.setIndex(
     Array.from({ length: quads }, (_, q) => [
       2 * q,
@@ -69,7 +107,7 @@ const buildRoad = (ribbon: readonly Vec3[]): THREE.Mesh => {
   geometry.computeVertexNormals();
   return new THREE.Mesh(
     geometry,
-    new THREE.MeshLambertMaterial({ color: 0x46464c, side: THREE.DoubleSide }),
+    new THREE.MeshLambertMaterial({ map: texture, side: THREE.DoubleSide }),
   );
 };
 
@@ -193,6 +231,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   pad.visible = false;
   scene.add(pad);
 
+  const laneMap = laneTexture();
+
   const cache = {
     terrain: null as Terrain | null,
     mesh: null as THREE.Mesh | null,
@@ -215,7 +255,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
       disposeObject(road);
     });
     cache.mesh = buildTerrainMesh(terrain);
-    cache.roads = terrain.routes.roads.map((road) => buildRoad(roadRibbon(road, terrain)));
+    cache.roads = terrain.routes.roads.map((road) => buildRoad(roadRibbon(road, terrain), laneMap));
     scene.add(cache.mesh, ...cache.roads);
     cache.terrain = terrain;
     water.scale.set(terrain.extent * 2, 1, terrain.extent * 2);
