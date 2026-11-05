@@ -4,6 +4,8 @@ import { flightLine } from './altitude';
 import { buildDrone } from './droneModel';
 import { buildFlag, faceDownwind } from './flags';
 import { STATUS_STYLE, statusOf } from './status';
+import { buildForest } from './treeModel';
+import { placeTrees } from './trees';
 import { colourAt, roadRibbon, terrainCoords, type Terrain } from './terrain';
 import type { Snapshot, Vec3 } from './types';
 import { boltPoints, CLOUD_COUNT, cloudBase, isStormCloud, rainDrops, rainStreak } from './weather';
@@ -232,6 +234,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   scene.add(pad);
 
   const laneMap = laneTexture();
+  const forest = new THREE.Group();
+  scene.add(forest);
 
   const cache = {
     terrain: null as Terrain | null,
@@ -239,6 +243,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     roads: [] as THREE.Mesh[],
     waypoints: null as readonly Vec3[] | null,
     home: null as Vec3 | null,
+    forestTerrain: null as Terrain | null,
+    forestHome: null as Vec3 | null,
     droneAt: new THREE.Vector3(),
     time: 0,
   };
@@ -287,6 +293,17 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     pad.position.set(home[0], home[1] + PAD_LIFT, home[2]);
     pad.visible = true;
     cache.home = home;
+  };
+
+  const syncForest = (terrain: Terrain, home: Vec3): void => {
+    if (cache.forestTerrain === terrain && cache.forestHome === home) return;
+    forest.children.slice().forEach((m) => {
+      forest.remove(m);
+      disposeObject(m);
+    });
+    forest.add(...buildForest(placeTrees(terrain, home)).children);
+    cache.forestTerrain = terrain;
+    cache.forestHome = home;
   };
 
   const syncRain = (s: Snapshot, terrain: Terrain): void => {
@@ -371,6 +388,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     syncTerrain(terrain);
     syncWaypoints(s.waypoints, terrain);
     syncPad(s.mission.home);
+    syncForest(terrain, s.mission.home);
     markers.children.forEach((flag) => faceDownwind(flag, s.config.windX, s.config.windZ));
     s.weather.clouds.forEach((c, i) => {
       clouds[i].position.set(c.x, c.y, c.z);
