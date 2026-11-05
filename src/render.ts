@@ -335,7 +335,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     cache.mesh = buildTerrainMesh(terrain);
     cache.roads = terrain.routes.roads.flatMap((road) => {
       const ribbon = roadRibbon(road, terrain);
-      const bridges = buildBridges(ribbon, terrain);
+      const bridges = buildBridges(road, ribbon, terrain);
       return bridges ? [buildRoad(ribbon, laneMap), bridges] : [buildRoad(ribbon, laneMap)];
     });
     scene.add(cache.mesh, ...cache.roads);
@@ -354,7 +354,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     // The route is a round trip, so the first waypoint (the pad) is also the finish line.
     waypoints.forEach(([x, y, z], i) => {
       const ground = terrain.heightAt(x, z);
-      const flag = buildFlag(y - ground, i === 0);
+      const flag = buildFlag(y - ground, i === 0 ? 'finish' : i);
       flag.position.set(x, ground, z);
       markers.add(flag);
     });

@@ -270,12 +270,34 @@ describe('terrain', () => {
     });
   });
 
+  it('carries one road over the other where two roads cross', () => {
+    let crossings = 0;
+    [1337, 7, 42, 2024, 9001, 31337].forEach((seed) => {
+      const t = createTerrain({ ...defaultConfig, seed });
+      const [first, ...rest] = t.routes.roads;
+      rest
+        .filter((road) => road.along !== first.along)
+        .forEach((road) => {
+          const best = Array.from({ length: 200 }, (_, i) => -500 + i * 5)
+            .map((s) => ({ s, d: distanceTo(first, ...pointAt(road, s)) }))
+            .reduce((a, b) => (b.d < a.d ? b : a));
+          if (best.d > 3) return;
+          const [x, z] = pointAt(road, best.s);
+          crossings += 1;
+          expect(
+            t.deckAt(road, best.s) - t.deckAt(first, first.along === 'x' ? x : z),
+          ).toBeGreaterThan(4);
+        });
+    });
+    expect(crossings).toBeGreaterThan(0);
+  });
+
   it('keeps road grades gentle and free of kinks', () => {
     [1337, 7, 42, 9001].forEach((seed) => {
       const t = createTerrain({ ...defaultConfig, seed });
       t.routes.roads.forEach((road) => {
         const decks = Array.from({ length: 160 }, (_, i) => t.deckAt(road, -500 + i * 6.25));
-        decks.slice(1).forEach((y, i) => expect(Math.abs(y - decks[i]) / 6.25).toBeLessThan(0.2));
+        decks.slice(1).forEach((y, i) => expect(Math.abs(y - decks[i]) / 6.25).toBeLessThan(0.25));
         decks
           .slice(2)
           .forEach((y, i) => expect(Math.abs(y - 2 * decks[i + 1] + decks[i])).toBeLessThan(1.5));

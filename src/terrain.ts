@@ -57,13 +57,24 @@ const PAD_BLEND = 45;
 /** Roads within JUNCTION_NEAR of an earlier road share its level, easing off by JUNCTION_FAR. */
 const JUNCTION_NEAR = 20;
 const JUNCTION_FAR = 260;
+/** A road crossing an earlier one climbs to BRIDGE_CLEARANCE above it, from BRIDGE_FAR out to BRIDGE_NEAR. */
+const BRIDGE_CLEARANCE = 5;
+const BRIDGE_NEAR = ROAD_HALF_WIDTH + 8;
+const BRIDGE_FAR = 140;
+/** Approaches to a bridge climb no faster than this, so stacked bridges stay drivable. */
+const BRIDGE_MAX_SLOPE = 0.035;
 
 /** How much further than the playable world the land extends, and how many coarse rings it uses. */
 export const FAR_FACTOR = 4.5;
 const FAR_CELLS = 40;
 const FAR_GROWTH = 3;
 
-type Grade = { readonly origin: number; readonly heights: readonly number[] };
+/** `heights` is the ground level the road is cut to; `lift` raises the deck above it on a bridge. */
+type Grade = {
+  readonly origin: number;
+  readonly heights: readonly number[];
+  readonly lift: readonly number[];
+};
 
 const blur = (values: readonly number[], radius: number): readonly number[] => {
   const prefix = values.reduce<number[]>((acc, v) => [...acc, acc[acc.length - 1] + v], [0]);
@@ -85,6 +96,16 @@ const limitSlope = (values: readonly number[], maxStep: number): readonly number
               ...acc,
               Math.min(acc[acc.length - 1] + maxStep, Math.max(acc[acc.length - 1] - maxStep, v)),
             ],
+      [],
+    );
+  return pass(pass(values).reverse()).reverse();
+};
+
+/** Widens every peak's flanks so no slope is steeper than `maxStep` per sample; peaks keep their height. */
+const rampUp = (values: readonly number[], maxStep: number): readonly number[] => {
+  const pass = (list: readonly number[]): number[] =>
+    list.reduce<number[]>(
+      (acc, v) => [...acc, acc.length === 0 ? v : Math.max(v, acc[acc.length - 1] - maxStep)],
       [],
     );
   return pass(pass(values).reverse()).reverse();
@@ -118,14 +139,33 @@ const buildGrade = (
       }),
     limited,
   );
-  return { origin, heights: blur(levelled, GRADE_SMOOTHING / 2) };
+  // Where it crosses an earlier road at a real angle, this road goes over it on a bridge.
+  const wanted = points.map(([x, z], k) =>
+    earlier.reduce((best, [other, grade]) => {
+      const [tx, tz] = tangentAt(road, origin + k * GRADE_STEP);
+      const [ux, uz] = tangentAt(other, alongOf(other, x, z));
+      const crossing = smoothstep(0.25, 0.55, Math.abs(tx * uz - tz * ux));
+      const over = 1 - smoothstep(BRIDGE_NEAR, BRIDGE_FAR, distanceTo(other, x, z));
+      const clear = BRIDGE_CLEARANCE + liftAt(grade, alongOf(other, x, z));
+      return Math.max(best, crossing * over * clear);
+    }, 0),
+  );
+  return {
+    origin,
+    heights: blur(levelled, GRADE_SMOOTHING / 2),
+    lift: rampUp(wanted, BRIDGE_MAX_SLOPE * GRADE_STEP),
+  };
 };
 
-const gradeAt = ({ origin, heights }: Grade, s: number): number => {
-  const f = Math.min(heights.length - 1, Math.max(0, (s - origin) / GRADE_STEP));
-  const i = Math.min(heights.length - 2, Math.floor(f));
-  return lerp(heights[i], heights[i + 1], f - i);
+const sampleGrade = (origin: number, values: readonly number[], s: number): number => {
+  const f = Math.min(values.length - 1, Math.max(0, (s - origin) / GRADE_STEP));
+  const i = Math.min(values.length - 2, Math.floor(f));
+  return lerp(values[i], values[i + 1], f - i);
 };
+
+const gradeAt = ({ origin, heights }: Grade, s: number): number => sampleGrade(origin, heights, s);
+
+const liftAt = ({ origin, lift }: Grade, s: number): number => sampleGrade(origin, lift, s);
 
 const alongOf = (road: Route, x: number, z: number): number => (road.along === 'x' ? x : z);
 
@@ -162,7 +202,7 @@ export const createTerrain = (cfg: Config): Terrain => {
   );
   const deckAt = (road: Route, s: number): number => {
     const grade = grades.get(road);
-    return (grade ? gradeAt(grade, s) : roadBed) + ROAD_LIFT;
+    return (grade ? gradeAt(grade, s) + liftAt(grade, s) : roadBed) + ROAD_LIFT;
   };
 
   /** Land, roads and river, with the ground levelled under `pad` when there is one. */

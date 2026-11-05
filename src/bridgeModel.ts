@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import type { Terrain } from './terrain';
+import { distanceTo, type Route } from './routes';
+import { ROAD_HALF_WIDTH, type Terrain } from './terrain';
 import type { Vec3 } from './types';
 
 /** The deck counts as a bridge where the ground beneath it is at least this far down. */
@@ -10,6 +11,8 @@ const PARAPET_HEIGHT = 0.9;
 const PIER_EVERY = 4;
 const PIER_LENGTH = 1.6;
 const PIER_INSET = 0.8;
+/** Piers keep this far clear of any other road passing underneath. */
+const PIER_ROAD_MARGIN = 3;
 
 /** Whether the ribbon quad starting at pair `q` has air or water under it. */
 const spans = (ribbon: readonly Vec3[], terrain: Terrain, q: number): boolean => {
@@ -22,7 +25,11 @@ const spans = (ribbon: readonly Vec3[], terrain: Terrain, q: number): boolean =>
  * Fascia and parapet along both edges of a road where it crosses water or a gully, with
  * piers down to the ground. Null when the road never leaves the ground.
  */
-export const buildBridges = (ribbon: readonly Vec3[], terrain: Terrain): THREE.Mesh | null => {
+export const buildBridges = (
+  road: Route,
+  ribbon: readonly Vec3[],
+  terrain: Terrain,
+): THREE.Mesh | null => {
   const limit = terrain.cfg.worldSize * 0.75;
   const pairs = ribbon.length / 2;
   const bridged = Array.from({ length: pairs - 1 }, (_, q) => q).filter(
@@ -65,6 +72,13 @@ export const buildBridges = (ribbon: readonly Vec3[], terrain: Terrain): THREE.M
   wallGeometry.computeVertexNormals();
   const piers = bridged
     .filter((q) => q % PIER_EVERY === 0)
+    .filter((q) => {
+      const cx = (ribbon[2 * q][0] + ribbon[2 * q + 1][0]) / 2;
+      const cz = (ribbon[2 * q][2] + ribbon[2 * q + 1][2]) / 2;
+      return terrain.routes.roads.every(
+        (other) => other === road || distanceTo(other, cx, cz) > ROAD_HALF_WIDTH + PIER_ROAD_MARGIN,
+      );
+    })
     .map((q) => {
       const [lx, ly, lz] = ribbon[2 * q];
       const [rx, , rz] = ribbon[2 * q + 1];
