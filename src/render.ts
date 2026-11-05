@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { flightLine } from './altitude';
 import { buildDrone } from './droneModel';
+import { buildFlag, faceDownwind } from './flags';
 import { STATUS_STYLE, statusOf } from './status';
 import { colourAt, roadRibbon, terrainCoords, type Terrain } from './terrain';
 import type { Snapshot, Vec3 } from './types';
@@ -227,13 +228,12 @@ export const createView = (canvas: HTMLCanvasElement): View => {
       markers.remove(m);
       disposeObject(m);
     });
-    waypoints.forEach(([x, y, z]) => {
-      const marker = new THREE.Mesh(
-        new THREE.OctahedronGeometry(6),
-        new THREE.MeshBasicMaterial({ color: 0xffd60a }),
-      );
-      marker.position.set(x, y, z);
-      markers.add(marker);
+    // The route is a round trip, so the first waypoint (the pad) is also the finish line.
+    waypoints.forEach(([x, y, z], i) => {
+      const ground = terrain.heightAt(x, z);
+      const flag = buildFlag(y - ground, i === 0);
+      flag.position.set(x, ground, z);
+      markers.add(flag);
     });
     const route = flightLine(waypoints, terrain);
     const loop = [...route, route[0]].map(([x, y, z]) => new THREE.Vector3(x, y, z));
@@ -331,6 +331,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     syncTerrain(terrain);
     syncWaypoints(s.waypoints, terrain);
     syncPad(s.mission.home);
+    markers.children.forEach((flag) => faceDownwind(flag, s.config.windX, s.config.windZ));
     s.weather.clouds.forEach((c, i) => {
       clouds[i].position.set(c.x, c.y, c.z);
       clouds[i].scale.setScalar(c.radius);
