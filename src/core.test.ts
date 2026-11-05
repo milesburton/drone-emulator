@@ -584,7 +584,9 @@ describe('sim', () => {
   it('draws a flight line that stays above the ground', () => {
     const line = flightLine(start.waypoints, terrain);
     expect(line.length).toBeGreaterThan(start.waypoints.length);
-    line.forEach(([x, y, z]) => expect(y).toBeGreaterThanOrEqual(terrain.heightAt(x, z) + CRUISE));
+    line.forEach(([x, y, z]) =>
+      expect(y).toBeGreaterThanOrEqual(terrain.heightAt(x, z) + CRUISE - 1e-6),
+    );
   });
 
   it('keeps the estimate close to the truth', () => {

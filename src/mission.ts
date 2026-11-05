@@ -61,7 +61,7 @@ export const fitToRange = (waypoints: readonly Vec3[], limit: number): readonly 
 const CANDIDATES = 40;
 const BISECTIONS = 12;
 /** Charge a planned route may use: the rest is the reserve, so a sortie lands at about 10% or less. */
-export const ENERGY_BUDGET = 0.65;
+export const ENERGY_BUDGET = 0.7;
 /** Rain the plan allows for: the weather is wet about half the time, so a plan for dry air would often run short. */
 export const PLANNED_RAIN = 0.6;
 /** Charge spent on takeoff and landing hovers, which the cruise legs do not count. */
