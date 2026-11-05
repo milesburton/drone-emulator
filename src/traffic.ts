@@ -44,7 +44,7 @@ export interface Driver {
 export const CAR_COLOURS = [
   0xc0392b, 0x2c5aa0, 0xe8e8e8, 0x1e1e22, 0xd4a017, 0x3a7d44, 0x8a8f96,
 ] as const;
-export const VEHICLES_PER_ROAD = 14;
+export const VEHICLES_PER_ROAD = 32;
 const LANE_OFFSET = 2;
 
 const pickKind = (roll: number): VehicleKind => {
