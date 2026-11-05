@@ -1,4 +1,5 @@
 import { createNoise2D } from 'simplex-noise';
+import { characterOf } from './character';
 import { toRandomFn } from './rng';
 import { createRoutes, distanceTo, pointAt, tangentAt, type Route, type Routes } from './routes';
 import type { Config, Vec3 } from './types';
@@ -32,10 +33,8 @@ export const terrainKey = (cfg: Config): string =>
     ':',
   );
 
-const LAKE_WIDTH = 0.05;
 const HILL_FREQUENCY = 1 / 380;
-const CHANNEL_HALF_WIDTH = 12;
-const BANK_WIDTH = 40;
+const BANK_RATIO = 3.3;
 const FLOODPLAIN_NEAR = 30;
 const FLOODPLAIN_FAR = 130;
 const ROAD_HALF_WIDTH = 4;
@@ -54,25 +53,34 @@ export const createTerrain = (cfg: Config): Terrain => {
   const hills = createNoise2D(toRandomFn(cfg.seed));
   const lakeNoise = createNoise2D(toRandomFn(cfg.seed ^ 0x9e3779b9));
   const routes = createRoutes(cfg);
-  const waterLevel = -0.3 * cfg.terrainScale;
+  const character = characterOf(cfg.seed);
+  const relief = cfg.terrainScale * character.relief;
+  const channelHalfWidth = character.riverHalfWidth;
+  const bankWidth = channelHalfWidth * BANK_RATIO;
+  const frequency = HILL_FREQUENCY * character.hillFrequency;
+  const waterLevel = -character.waterFraction * cfg.terrainScale;
   const lakeBed = waterLevel - 0.1 * cfg.terrainScale;
   const riverBed = waterLevel - 0.08 * cfg.terrainScale;
   const floodplain = waterLevel + 0.06 * cfg.terrainScale;
   const roadBed = waterLevel + ROAD_BED_ABOVE_WATER;
 
   const heightAt = (x: number, z: number): number => {
-    const fx = x * HILL_FREQUENCY;
-    const fz = z * HILL_FREQUENCY;
+    const fx = x * frequency;
+    const fz = z * frequency;
     const raw =
       0.62 * hills(fx, fz) + 0.28 * hills(fx * 3.1, fz * 3.1) + 0.1 * hills(fx * 9, fz * 9);
-    const base = raw * cfg.terrainScale;
+    const base = raw * relief;
     const roadDistance = routes.roads.reduce(
       (best, road) => Math.min(best, distanceTo(road, x, z)),
       Infinity,
     );
     const roadBlend = 1 - smoothstep(ROAD_VERGE_NEAR, ROAD_VERGE_FAR, roadDistance);
     const lakeShore = cfg.lakes
-      ? lerp(lakeBed, base, smoothstep(0, LAKE_WIDTH, Math.abs(lakeNoise(x * 0.0028, z * 0.0028))))
+      ? lerp(
+          lakeBed,
+          base,
+          smoothstep(0, character.lakeWidth, Math.abs(lakeNoise(x * 0.0028, z * 0.0028))),
+        )
       : base;
     // Roads sit on dry land: lakes and low ground are raised to an embankment beside them.
     const land = lerp(lakeShore, Math.max(base, roadBed), roadBlend);
@@ -83,7 +91,7 @@ export const createTerrain = (cfg: Config): Terrain => {
       land,
       smoothstep(FLOODPLAIN_NEAR, FLOODPLAIN_FAR, distance),
     );
-    return lerp(riverBed, plain, smoothstep(CHANNEL_HALF_WIDTH, BANK_WIDTH, distance));
+    return lerp(riverBed, plain, smoothstep(channelHalfWidth, bankWidth, distance));
   };
 
   return { heightAt, waterLevel, cfg, routes, extent: cfg.worldSize * FAR_FACTOR };

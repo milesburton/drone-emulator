@@ -1,4 +1,5 @@
 import { createNoise2D } from 'simplex-noise';
+import { characterOf } from './character';
 import { ranges, toRandomFn } from './rng';
 import type { Config, Vec2 } from './types';
 
@@ -50,20 +51,31 @@ const wander =
     baseline +
     amplitude * (0.7 * noise(s / wavelength, salt) + 0.3 * noise((s * 2.3) / wavelength, salt + 5));
 
-/** Builds the river and the two crossing roads from the seed; nothing here is random at call time. */
+/** Builds the river and the crossing roads from the seed; nothing here is random at call time. */
 export const createRoutes = (cfg: Config): Routes => {
   const size = cfg.worldSize;
+  const character = characterOf(cfg.seed);
   const noise = createNoise2D(toRandomFn(cfg.seed ^ 0x51ed270b));
-  const [baselines] = ranges(cfg.seed ^ 0x2545f491, 3, -0.2 * size, 0.2 * size);
+  const [baselines] = ranges(cfg.seed ^ 0x2545f491, 4, -0.2 * size, 0.2 * size);
   return {
     river: cfg.river
-      ? { along: 'x', offsetAt: wander(noise, baselines[0], 0.14 * size, 520, 1.7) }
+      ? {
+          along: 'x',
+          offsetAt: wander(
+            noise,
+            baselines[0],
+            character.riverSinuosity * size,
+            character.riverWavelength,
+            1.7,
+          ),
+        }
       : null,
+    // Roads alternate direction so any count still crosses the map.
     roads: cfg.roads
-      ? [
-          { along: 'z', offsetAt: wander(noise, baselines[1], 0.08 * size, 700, 9.1) },
-          { along: 'x', offsetAt: wander(noise, baselines[2], 0.08 * size, 640, 17.3) },
-        ]
+      ? Array.from({ length: character.roadCount }, (_, i): Route => ({
+          along: i % 2 === 0 ? 'z' : 'x',
+          offsetAt: wander(noise, baselines[i + 1], 0.08 * size, 700 - 30 * i, 9.1 + 8.2 * i),
+        }))
       : [],
   };
 };

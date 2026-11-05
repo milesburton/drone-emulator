@@ -18,6 +18,7 @@ import {
   triggerStorm,
   turnTowards,
 } from './sim';
+import { characterOf } from './character';
 import { createRoutes, distanceTo, pointAt, tangentAt } from './routes';
 import {
   colourAt,
@@ -271,7 +272,7 @@ describe('routes', () => {
     const a = createRoutes(defaultConfig);
     const b = createRoutes(defaultConfig);
     expect(a.river!.offsetAt(123)).toBe(b.river!.offsetAt(123));
-    expect(a.roads).toHaveLength(2);
+    expect(a.roads).toHaveLength(characterOf(defaultConfig.seed).roadCount);
     const none = createRoutes({ ...defaultConfig, river: false, roads: false });
     expect(none.river).toBeNull();
     expect(none.roads).toHaveLength(0);
@@ -589,7 +590,7 @@ describe('attitude', () => {
 });
 
 describe('new maps', () => {
-  const seeds = Array.from({ length: 40 }, (_, i) => 101 + i * 2477);
+  const seeds = Array.from({ length: 60 }, (_, i) => 101 + i * 2477);
   const base = createSnapshot(defaultConfig, createTerrain(defaultConfig));
 
   it('draws in-range seeds deterministically and threads the RNG', () => {
@@ -646,5 +647,58 @@ describe('new maps', () => {
     const [rx, rz] = pointAt(river, 0);
     expect(Math.max(Math.abs(rx), Math.abs(rz))).toBeLessThan(s.config.worldSize);
     expect(t.heightAt(rx, rz)).toBeLessThan(t.waterLevel + 1);
+    // The river stays inside the playable world along its whole length and always holds water.
+    Array.from({ length: 21 }, (_, i) =>
+      pointAt(river, -half + (i * s.config.worldSize) / 20),
+    ).forEach(([x, z]) => {
+      expect(Math.abs(z)).toBeLessThan(half);
+      expect(t.heightAt(x, z)).toBeLessThan(t.waterLevel);
+    });
+    expect(t.routes.roads).toHaveLength(characterOf(seed).roadCount);
+  });
+});
+
+describe('map character', () => {
+  const seeds = Array.from({ length: 200 }, (_, i) => i * 7919);
+
+  it('is deterministic per seed', () => {
+    expect(characterOf(31)).toEqual(characterOf(31));
+    expect(characterOf(31)).not.toEqual(characterOf(32));
+  });
+
+  it('stays within bounds and actually varies across seeds', () => {
+    const all = seeds.map(characterOf);
+    all.forEach((c) => {
+      expect(c.roadCount).toBeGreaterThanOrEqual(1);
+      expect(c.roadCount).toBeLessThanOrEqual(3);
+      expect(c.relief).toBeGreaterThanOrEqual(0.7);
+      expect(c.relief).toBeLessThanOrEqual(1.4);
+      expect(c.waterFraction).toBeLessThan(0.4);
+    });
+    expect(new Set(all.map((c) => c.roadCount)).size).toBe(3);
+    expect(
+      Math.max(...all.map((c) => c.relief)) - Math.min(...all.map((c) => c.relief)),
+    ).toBeGreaterThan(0.5);
+  });
+
+  it('flies the steepest and busiest seeds without clipping', () => {
+    const steep = [...seeds]
+      .sort(
+        (a, b) =>
+          characterOf(b).relief * characterOf(b).hillFrequency -
+          characterOf(a).relief * characterOf(a).hillFrequency,
+      )
+      .slice(0, 4);
+    steep.forEach((seed) => {
+      const cfg = { ...defaultConfig, seed, terrainScale: 120 };
+      const t = createTerrain(cfg);
+      const states = Array.from({ length: 4000 }).reduce<Snapshot[]>(
+        (acc) => [...acc, step(acc[acc.length - 1], t, 0.05)],
+        [createSnapshot(cfg, t)],
+      );
+      states.forEach(({ drone: { pos } }) =>
+        expect(pos[1] - t.heightAt(pos[0], pos[2])).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6),
+      );
+    });
   });
 });
