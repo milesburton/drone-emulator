@@ -495,8 +495,10 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     look.framed = true;
     held.forEach((code) => {
       const [x, z] = MOVE_KEYS[code] ?? [0, 0];
-      camera.translateX(x * MOVE_SPEED * dt);
-      camera.translateZ(z * MOVE_SPEED * dt);
+      // Level with the ground like an FPS: pitch steers the view but not the walking direction.
+      const step = MOVE_SPEED * dt;
+      camera.position.x += (x * Math.cos(look.yaw) + z * Math.sin(look.yaw)) * step;
+      camera.position.z += (z * Math.cos(look.yaw) - x * Math.sin(look.yaw)) * step;
     });
     controls.target.copy(cache.droneAt);
     if (!look.free) controls.update();
