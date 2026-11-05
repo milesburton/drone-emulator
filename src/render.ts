@@ -32,6 +32,13 @@ const CAMERA_OFFSET = new THREE.Vector3(0, 18, 42);
 const LOOK_SPEED = 0.004;
 const LOOK_PITCH_LIMIT = Math.PI * 0.49;
 const DOLLY_SPEED = 0.05;
+const MOVE_SPEED = 80;
+const MOVE_KEYS: Readonly<Record<string, readonly [number, number]>> = {
+  KeyW: [0, -1],
+  KeyS: [0, 1],
+  KeyA: [-1, 0],
+  KeyD: [1, 0],
+};
 const FOG_NEAR = 600;
 const FOG_FAR = 4200;
 const TINT_RATE = 3;
@@ -181,13 +188,16 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   controls.maxPolarAngle = Math.PI * 0.49;
   controls.minDistance = 10;
 
-  const look = { free: false, framed: false, yaw: 0, pitch: 0 };
+  const look = { free: false, framed: false, yaw: 0, pitch: 0, last: 0 };
+  const held = new Set<string>();
   const aim = (): void => {
     camera.quaternion.setFromEuler(new THREE.Euler(look.pitch, look.yaw, 0, 'YXZ'));
   };
   const setFreeLook = (on: boolean): void => {
     look.free = on;
     controls.enabled = !on;
+    held.clear();
+    if (!on) look.framed = false;
     if (on) {
       const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
       look.yaw = euler.y;
@@ -203,6 +213,12 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     );
     aim();
   });
+  window.addEventListener('keydown', (e) => {
+    const typing = e.target instanceof HTMLInputElement && e.target.type === 'text';
+    if (look.free && !typing && e.code in MOVE_KEYS) held.add(e.code);
+  });
+  window.addEventListener('keyup', (e) => held.delete(e.code));
+  window.addEventListener('blur', () => held.clear());
   canvas.addEventListener(
     'wheel',
     (e) => {
@@ -471,9 +487,17 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     rotors.forEach((rotor, i) => {
       rotor.rotation.y = s.time * ROTOR_SPEED * (i % 2 === 0 ? 1 : -1);
     });
+    const now = performance.now();
+    const dt = Math.min((now - look.last) / 1000, 0.1);
+    look.last = now;
     if (look.framed) camera.position.add(cache.droneAt.clone().sub(previous));
     else camera.position.copy(cache.droneAt).add(CAMERA_OFFSET);
     look.framed = true;
+    held.forEach((code) => {
+      const [x, z] = MOVE_KEYS[code] ?? [0, 0];
+      camera.translateX(x * MOVE_SPEED * dt);
+      camera.translateZ(z * MOVE_SPEED * dt);
+    });
     controls.target.copy(cache.droneAt);
     if (!look.free) controls.update();
     syncRain(s, terrain);
