@@ -65,7 +65,7 @@ export interface Crash {
 export type Phase = 'grounded' | 'takeoff' | 'cruise' | 'returning' | 'landing' | 'lost';
 
 /** How the last flight ended. */
-export type Outcome = 'success' | 'failed' | 'lost';
+export type Outcome = 'success' | 'failed' | 'lost' | 'crashed';
 
 /** Why a flight was abandoned; only the cheap cases are told apart so far. */
 export type FailureReason = 'battery' | 'wind' | 'rain' | 'distance' | 'unknown';
@@ -90,6 +90,10 @@ export interface Mission {
   readonly failures: number;
   /** Flights that went so far astray the drone could neither get home nor reach its target. */
   readonly lost: number;
+  /** Flights that ended by striking terrain or water, counted apart from running out of power. */
+  readonly crashed: number;
+  /** What brought the drone down while in the 'lost' phase; null otherwise. */
+  readonly downBy: 'power' | 'impact' | null;
   /** How the last flight ended; cleared at takeoff. */
   readonly outcome: Outcome | null;
   readonly lastFailure: FailureReason | null;

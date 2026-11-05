@@ -949,6 +949,7 @@ describe('mission', () => {
     };
     const down = tick(stranded);
     expect(down.mission.phase).toBe('lost');
+    expect(down.mission.downBy).toBe('power');
     expect(statusOf(down)).toBe('lost');
     const back = until(down, (s) => s.mission.phase === 'grounded');
     expect(back.mission).toMatchObject({
@@ -1005,7 +1006,16 @@ describe('mission', () => {
     };
     const after = tick(buried);
     expect(after.mission.phase).toBe('lost');
+    expect(after.mission.downBy).toBe('impact');
+    expect(statusOf(after)).toBe('crashed');
     expect(after.drone.crash).toBeDefined();
+    // A crash is its own metric, waits 10 s on the ground, then resets to the pad.
+    const wrecked = until(after, (s) => hasImpacted(s.drone.crash));
+    const back = until(wrecked, (s) => s.mission.phase === 'grounded');
+    expect(back.time - wrecked.time).toBeGreaterThanOrEqual(10 - 0.1);
+    expect(back.mission).toMatchObject({ crashed: 1, lost: 0, outcome: 'crashed', downBy: null });
+    expect(back.drone.pos).toEqual(back.mission.home);
+    expect(statusOf(back)).toBe('crashed');
   });
 
   it('crashes a flying drone that touches the water, and it comes down on the surface', () => {
@@ -1017,6 +1027,7 @@ describe('mission', () => {
     };
     const after = tick(splash);
     expect(after.mission.phase).toBe('lost');
+    expect(after.mission.downBy).toBe('impact');
     const wrecked = until(after, (s) => hasImpacted(s.drone.crash));
     expect(wrecked.drone.pos[1]).toBeGreaterThanOrEqual(terrain.waterLevel - 1e-6);
   });

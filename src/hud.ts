@@ -78,7 +78,7 @@ export const readouts = (s: Snapshot, terrain: Terrain, groundSpeed: number): Re
     phase: `${m.phase}${retry}`,
     waypoint: `${s.drone.wp + 1}/${s.waypoints.length}`,
     trip: `${m.trip.toFixed(0)} m (total ${m.totalTrip.toFixed(0)} m)`,
-    flights: `${m.successes} ok, ${m.failures} failed, ${m.lost} lost${why}`,
+    flights: `${m.successes} ok, ${m.failures} failed, ${m.lost} lost, ${m.crashed} crashed${why}`,
     weather: `${s.weather.phase}, rain ${(s.weather.rain * 100).toFixed(0)}%`,
     ekfError: Math.hypot(s.ekf.x[0] - x, s.ekf.x[1] - z),
     pressure: pressureOf(s.ekf),

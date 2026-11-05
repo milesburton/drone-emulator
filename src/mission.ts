@@ -21,6 +21,8 @@ export const ROUTE_FRACTION = 0.7;
 export const GROUND_TIME = 3;
 /** Seconds a lost drone lies where it came down before it is collected and the route replanned. */
 export const LOST_TIME = 5;
+/** Seconds a crashed drone lies where it hit before it is set back on the pad to try again. */
+export const CRASH_TIME = 10;
 /** Failed attempts on one route before a new one is planned. */
 export const MAX_ATTEMPTS = 3;
 export const TAKEOFF_CLIMB = 8;
@@ -201,6 +203,8 @@ export const startMission = (home: Vec3): Mission => ({
   successes: 0,
   failures: 0,
   lost: 0,
+  crashed: 0,
+  downBy: null,
   outcome: null,
   lastFailure: null,
 });

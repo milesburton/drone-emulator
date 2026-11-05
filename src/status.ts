@@ -1,7 +1,7 @@
 import type { Snapshot, Vec3 } from './types';
 
 export type DroneStatus =
-  'ready' | 'onCourse' | 'offCourse' | 'returning' | 'success' | 'failed' | 'lost';
+  'ready' | 'onCourse' | 'offCourse' | 'returning' | 'success' | 'failed' | 'lost' | 'crashed';
 
 /** Metres from the planned leg beyond which the drone counts as off course. */
 export const OFF_COURSE_DISTANCE = 40;
@@ -16,6 +16,7 @@ export const STATUS_STYLE: Readonly<
   success: { label: 'Success', icon: '✔', colour: 0x30d158 },
   failed: { label: 'Aborted, landed', icon: '✖', colour: 0xffd60a },
   lost: { label: 'Lost', icon: '⛔', colour: 0xff453a },
+  crashed: { label: 'Crashed', icon: '💥', colour: 0xff453a },
 };
 
 /** Horizontal distance from `p` to the segment `a`..`b`. */
@@ -35,7 +36,7 @@ export const statusOf = (s: Snapshot): DroneStatus => {
   const { phase, outcome } = s.mission;
   switch (phase) {
     case 'lost':
-      return 'lost';
+      return s.mission.downBy === 'impact' ? 'crashed' : 'lost';
     case 'returning':
       return 'returning';
     case 'grounded':
@@ -45,7 +46,9 @@ export const statusOf = (s: Snapshot): DroneStatus => {
           ? 'failed'
           : outcome === 'lost'
             ? 'lost'
-            : 'ready';
+            : outcome === 'crashed'
+              ? 'crashed'
+              : 'ready';
     case 'takeoff':
       return 'onCourse';
     case 'landing':

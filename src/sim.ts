@@ -11,6 +11,7 @@ import {
   isLost,
   LAND_DESCENT,
   LAND_SPEED,
+  CRASH_TIME,
   LOST_TIME,
   MAX_ATTEMPTS,
   planRoute,
@@ -224,11 +225,13 @@ const account = (
  * A flight's end, on the pad or (when lost) after the drone is collected from where it came down:
  * score the flight, refill the battery and choose the next route.
  */
-const touchDown = (s: Snapshot, terrain: Terrain, lost = false): Snapshot => {
+const touchDown = (s: Snapshot, terrain: Terrain, down = false): Snapshot => {
   const m = s.mission;
-  const failed = m.aborted && !lost;
+  const crashed = down && m.downBy === 'impact';
+  const lost = down && !crashed;
+  const failed = m.aborted && !down;
   const attempt = failed ? m.attempt + 1 : 0;
-  const replan = lost || !failed || attempt >= MAX_ATTEMPTS;
+  const replan = down || !failed || attempt >= MAX_ATTEMPTS;
   const [waypoints, rng] = replan
     ? planRoute(s.config, terrain, s.rng, m.home, AIR_SPEED)
     : [s.waypoints, s.rng];
@@ -246,13 +249,15 @@ const touchDown = (s: Snapshot, terrain: Terrain, lost = false): Snapshot => {
       successes: m.successes + (failed || lost ? 0 : 1),
       failures: m.failures + (failed ? 1 : 0),
       lost: m.lost + (lost ? 1 : 0),
-      outcome: lost ? 'lost' : failed ? 'failed' : 'success',
+      crashed: m.crashed + (crashed ? 1 : 0),
+      downBy: null,
+      outcome: crashed ? 'crashed' : lost ? 'lost' : failed ? 'failed' : 'success',
     },
   };
 };
 
 /** Power gone mid-air (flat battery or a strike on the terrain): momentum carries on while the airframe starts to tumble. */
-const loseFlight = (s: Snapshot, wind: Vec2): Snapshot => {
+const loseFlight = (s: Snapshot, wind: Vec2, downBy: 'power' | 'impact'): Snapshot => {
   const [a, r1] = next(s.rng);
   const [b, r2] = next(r1);
   const [c, r3] = next(r2);
@@ -267,7 +272,12 @@ const loseFlight = (s: Snapshot, wind: Vec2): Snapshot => {
         [a, b, c],
       ),
     },
-    mission: { ...s.mission, phase: 'lost', groundLeft: LOST_TIME },
+    mission: {
+      ...s.mission,
+      phase: 'lost',
+      downBy,
+      groundLeft: downBy === 'impact' ? CRASH_TIME : LOST_TIME,
+    },
   };
 };
 
@@ -281,7 +291,7 @@ const transition = (s: Snapshot, motion: Motion, terrain: Terrain): Snapshot => 
     ...s,
     mission: { ...m, phase, ...patch },
   });
-  const powerLoss = (): Snapshot => loseFlight(s, wind);
+  const powerLoss = (): Snapshot => loseFlight(s, wind, 'power');
   switch (m.phase) {
     case 'grounded':
       return m.groundLeft <= 0 ? goTo('takeoff', { trip: 0, outcome: null }) : s;
@@ -330,7 +340,7 @@ export const step = (s: Snapshot, terrain: Terrain, dt: number): Snapshot => {
   const inAir = s.mission.phase === 'cruise' || s.mission.phase === 'returning';
   if (inAir && hasHitTerrain(s.drone.pos, terrain)) {
     const gust = gustAt(s.time, s.weather.rain);
-    return loseFlight(s, [cfg.windX + gust[0], cfg.windZ + gust[1]]);
+    return loseFlight(s, [cfg.windX + gust[0], cfg.windZ + gust[1]], 'impact');
   }
   const motion = moveFor(s, terrain, dt);
   const flying = s.mission.phase !== 'grounded' && s.mission.phase !== 'lost';
