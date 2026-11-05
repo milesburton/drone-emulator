@@ -35,7 +35,7 @@ const run = (
   }, fleet);
 };
 
-describe('traffic', () => {
+describe('traffic', { timeout: 60_000 }, () => {
   it('is deterministic for a map and time', () => {
     const a = setup(7);
     const b = setup(7);
@@ -94,7 +94,8 @@ describe('traffic', () => {
   });
 });
 
-describe('traffic interaction', () => {
+// These run minutes of simulated traffic; the CI runner with coverage is several times slower than a laptop.
+describe('traffic interaction', { timeout: 120_000 }, () => {
   it('never drives faster than the driver wants or backwards', () => {
     SEEDS.slice(0, 3).forEach((seed) =>
       run(seed, 90, (f, drivers) =>
