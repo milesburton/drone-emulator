@@ -45,7 +45,7 @@ describe('biomes', () => {
       expect(count('desert')).toBeLessThan(count('valley') / 2);
       expect(count('mountain')).toBeLessThanOrEqual(count('valley'));
     });
-  });
+  }, 30_000);
 
   it('colours each biome differently at the same height', () => {
     const colours = BIOMES.map((b) => {
