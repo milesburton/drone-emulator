@@ -54,7 +54,7 @@ export const fall = (
   const nx = drone.pos[0] + vel[0] * dt;
   const nz = drone.pos[2] + vel[2] * dt;
   const ny = drone.pos[1] + vel[1] * dt;
-  const ground = terrain.heightAt(nx, nz);
+  const ground = surfaceAt(terrain, nx, nz);
   const pitch = drone.pitch + crash.spin[0] * dt;
   const roll = drone.roll + crash.spin[1] * dt;
   const heading = drone.heading + crash.spin[2] * dt;
@@ -69,9 +69,13 @@ export const fall = (
       };
 };
 
-/** True once the drone is at or below the terrain surface. */
+/** Highest thing underfoot: the land, or the water standing over it. A drone that touches either is down. */
+export const surfaceAt = (terrain: Terrain, x: number, z: number): number =>
+  Math.max(terrain.heightAt(x, z), terrain.waterLevel);
+
+/** True once the drone is at or below the land or water surface. */
 export const hasHitTerrain = (pos: Vec3, terrain: Terrain): boolean =>
-  pos[1] <= terrain.heightAt(pos[0], pos[2]) + 0.5;
+  pos[1] <= surfaceAt(terrain, pos[0], pos[2]) + 0.5;
 
 /** True once a crashing drone has reached the ground. */
 export const hasImpacted = (crash: Crash | undefined): boolean =>

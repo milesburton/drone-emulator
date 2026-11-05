@@ -20,7 +20,7 @@ import {
   turnTowards,
 } from './sim';
 import { characterOf } from './character';
-import { hasImpacted } from './crash';
+import { hasImpacted, surfaceAt } from './crash';
 import {
   drainRate,
   ENERGY_BUDGET,
@@ -981,7 +981,7 @@ describe('mission', () => {
     ).toBe(true);
     const wrecked = until(down, (s) => hasImpacted(s.drone.crash));
     expect(wrecked.drone.pos[1]).toBeCloseTo(
-      terrain.heightAt(wrecked.drone.pos[0], wrecked.drone.pos[2]),
+      surfaceAt(terrain, wrecked.drone.pos[0], wrecked.drone.pos[2]),
       6,
     );
     expect(wrecked.mission.phase).toBe('lost');
@@ -1004,6 +1004,19 @@ describe('mission', () => {
     const after = tick(buried);
     expect(after.mission.phase).toBe('lost');
     expect(after.drone.crash).toBeDefined();
+  });
+
+  it('crashes a flying drone that touches the water, and it comes down on the surface', () => {
+    const up = cruising(start);
+    const [x, , z] = up.drone.pos;
+    const splash = {
+      ...up,
+      drone: { ...up.drone, pos: [x, terrain.waterLevel + 0.2, z] as const },
+    };
+    const after = tick(splash);
+    expect(after.mission.phase).toBe('lost');
+    const wrecked = until(after, (s) => hasImpacted(s.drone.crash));
+    expect(wrecked.drone.pos[1]).toBeGreaterThanOrEqual(terrain.waterLevel - 1e-6);
   });
 
   it('reports the state of the flight for colour and badge', () => {
