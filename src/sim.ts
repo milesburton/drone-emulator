@@ -7,8 +7,10 @@ import {
   findPad,
   fitToRange,
   GROUND_TIME,
+  isLost,
   LAND_DESCENT,
   LAND_SPEED,
+  LOST_TIME,
   MAX_ATTEMPTS,
   planRoute,
   routeLimit,
@@ -20,7 +22,7 @@ import { gaussians, next } from './rng';
 import { createTerrain, terrainKey, type Terrain } from './terrain';
 import type { Config, Mission, Snapshot, Vec2, Vec3 } from './types';
 import { retarget, riverWaypoints } from './waypoints';
-import { createWeather, startStorm, stepWeather } from './weather';
+import { createWeather, gustAt, startStorm, stepWeather } from './weather';
 
 export const AIR_SPEED = 25;
 export const ARRIVAL_RADIUS = 15;
@@ -117,8 +119,9 @@ const fly = (s: Snapshot, terrain: Terrain, dt: number, target: Vec3): Motion =>
       ? s.drone.heading
       : turnTowards(s.drone.heading, Math.atan2(dz, dx), MAX_TURN_RATE * dt);
   const air: Vec2 = [Math.cos(heading) * AIR_SPEED, Math.sin(heading) * AIR_SPEED];
-  const nx = px + (air[0] + cfg.windX) * dt;
-  const nz = pz + (air[1] + cfg.windZ) * dt;
+  const gust = gustAt(s.time, s.weather.rain);
+  const nx = px + (air[0] + cfg.windX + gust[0]) * dt;
+  const nz = pz + (air[1] + cfg.windZ + gust[1]) * dt;
   return {
     pos: [nx, nextAltitude(terrain, py, nx, nz, heading, dt), nz],
     heading,
@@ -153,6 +156,14 @@ const land = (s: Snapshot, terrain: Terrain, dt: number): Motion => {
   };
 };
 
+/** A lost drone comes down where it is and stays there until it is collected. */
+const crash = (s: Snapshot, terrain: Terrain, dt: number): Motion => {
+  const [px, py, pz] = s.drone.pos;
+  const ground = terrain.heightAt(px, pz);
+  const ny = Math.max(ground, py - 2 * LAND_DESCENT * dt);
+  return holding(s, [px, ny, pz], s.drone.heading, ny <= ground && s.mission.groundLeft <= 0);
+};
+
 const moveFor = (s: Snapshot, terrain: Terrain, dt: number): Motion => {
   const { phase } = s.mission;
   switch (phase) {
@@ -162,6 +173,8 @@ const moveFor = (s: Snapshot, terrain: Terrain, dt: number): Motion => {
       return takeOff(s, dt);
     case 'landing':
       return land(s, terrain, dt);
+    case 'lost':
+      return crash(s, terrain, dt);
     case 'returning':
       return fly(s, terrain, dt, s.waypoints[0]);
     case 'cruise':
@@ -171,24 +184,28 @@ const moveFor = (s: Snapshot, terrain: Terrain, dt: number): Motion => {
 
 /** Charge, trip meter and pad countdown after moving from `from` to `to`. */
 const account = (m: Mission, from: Vec3, to: Vec3, rain: number, dt: number): Mission => {
+  const waiting = m.phase === 'grounded' || m.phase === 'lost';
   const flown =
     m.phase === 'grounded' ? 0 : Math.hypot(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
   const climb = (to[1] - from[1]) / dt;
   return {
     ...m,
     battery: Math.max(0, m.battery - drainRate(m.phase, climb, rain) * dt),
-    groundLeft: m.phase === 'grounded' ? Math.max(0, m.groundLeft - dt) : m.groundLeft,
+    groundLeft: waiting ? Math.max(0, m.groundLeft - dt) : m.groundLeft,
     trip: m.trip + flown,
     totalTrip: m.totalTrip + flown,
   };
 };
 
-/** A completed landing: score the flight, refill the battery and choose the next route. */
-const touchDown = (s: Snapshot, terrain: Terrain): Snapshot => {
+/**
+ * A flight's end, on the pad or (when lost) after the drone is collected from where it came down:
+ * score the flight, refill the battery and choose the next route.
+ */
+const touchDown = (s: Snapshot, terrain: Terrain, lost = false): Snapshot => {
   const m = s.mission;
-  const failed = m.aborted;
+  const failed = m.aborted && !lost;
   const attempt = failed ? m.attempt + 1 : 0;
-  const replan = !failed || attempt >= MAX_ATTEMPTS;
+  const replan = lost || !failed || attempt >= MAX_ATTEMPTS;
   const [waypoints, rng] = replan
     ? planRoute(s.config, terrain, s.rng, m.home, AIR_SPEED)
     : [s.waypoints, s.rng];
@@ -203,8 +220,10 @@ const touchDown = (s: Snapshot, terrain: Terrain): Snapshot => {
       groundLeft: GROUND_TIME,
       aborted: false,
       attempt: replan ? 0 : attempt,
-      successes: m.successes + (failed ? 0 : 1),
+      successes: m.successes + (failed || lost ? 0 : 1),
       failures: m.failures + (failed ? 1 : 0),
+      lost: m.lost + (lost ? 1 : 0),
+      outcome: lost ? 'lost' : failed ? 'failed' : 'success',
     },
   };
 };
@@ -213,18 +232,24 @@ const touchDown = (s: Snapshot, terrain: Terrain): Snapshot => {
 const transition = (s: Snapshot, motion: Motion, terrain: Terrain): Snapshot => {
   const m = s.mission;
   const { wp } = s.drone;
-  const wind: Vec2 = [s.config.windX, s.config.windZ];
+  const gust = gustAt(s.time, s.weather.rain);
+  const wind: Vec2 = [s.config.windX + gust[0], s.config.windZ + gust[1]];
   const goTo = (phase: Mission['phase'], patch: Partial<Mission> = {}): Snapshot => ({
     ...s,
     mission: { ...m, phase, ...patch },
   });
   switch (m.phase) {
     case 'grounded':
-      return m.groundLeft <= 0 ? goTo('takeoff', { trip: 0 }) : s;
+      return m.groundLeft <= 0 ? goTo('takeoff', { trip: 0, outcome: null }) : s;
     case 'takeoff':
       return motion.arrived ? goTo('cruise') : s;
     case 'cruise': {
       if (wp === 0 && motion.arrived) return goTo('landing');
+      if (
+        isLost(m.battery, s.drone.pos, m.home, s.waypoints[wp], wind, s.weather.rain, AIR_SPEED)
+      ) {
+        return goTo('lost', { groundLeft: LOST_TIME });
+      }
       if (
         wp !== 0 &&
         shouldReturn(m.battery, s.drone.pos, m.home, wind, s.weather.rain, AIR_SPEED)
@@ -245,7 +270,12 @@ const transition = (s: Snapshot, motion: Motion, terrain: Terrain): Snapshot => 
         : s;
     }
     case 'returning':
+      if (isLost(m.battery, s.drone.pos, m.home, m.home, wind, s.weather.rain, AIR_SPEED)) {
+        return goTo('lost', { groundLeft: LOST_TIME });
+      }
       return motion.arrived ? goTo('landing') : s;
+    case 'lost':
+      return motion.arrived ? touchDown(s, terrain, true) : s;
     case 'landing':
       return motion.arrived ? touchDown(s, terrain) : s;
   }
@@ -254,7 +284,7 @@ const transition = (s: Snapshot, motion: Motion, terrain: Terrain): Snapshot => 
 export const step = (s: Snapshot, terrain: Terrain, dt: number): Snapshot => {
   const { config: cfg } = s;
   const motion = moveFor(s, terrain, dt);
-  const flying = s.mission.phase !== 'grounded';
+  const flying = s.mission.phase !== 'grounded' && s.mission.phase !== 'lost';
   const attitude = flying
     ? nextAttitude(
         s.drone,
@@ -337,7 +367,7 @@ export const newMap = (s: Snapshot, seed: number): readonly [Snapshot, Terrain] 
   const config = { ...s.config, seed };
   const terrain = createTerrain(config);
   const fresh = createSnapshot(config, terrain);
-  const { successes, failures, totalTrip } = s.mission;
+  const { successes, failures, lost, totalTrip } = s.mission;
   return [
     {
       ...s,
@@ -345,7 +375,7 @@ export const newMap = (s: Snapshot, seed: number): readonly [Snapshot, Terrain] 
       waypoints: fresh.waypoints,
       drone: fresh.drone,
       ekf: fresh.ekf,
-      mission: { ...fresh.mission, successes, failures, totalTrip },
+      mission: { ...fresh.mission, successes, failures, lost, totalTrip },
     },
     terrain,
   ];

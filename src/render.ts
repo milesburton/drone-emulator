@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { flightLine } from './altitude';
 import { buildDrone } from './droneModel';
+import { STATUS_STYLE, statusOf } from './status';
 import { colourAt, roadRibbon, terrainCoords, type Terrain } from './terrain';
 import type { Snapshot, Vec3 } from './types';
 import { boltPoints, CLOUD_COUNT, cloudBase, isStormCloud, rainDrops, rainStreak } from './weather';
@@ -21,6 +22,7 @@ const WIND_COUNT = 450;
 const ROTOR_SPEED = 60;
 const FOG_NEAR = 600;
 const FOG_FAR = 4200;
+const TINT_RATE = 3;
 const PAD_RADIUS = 8;
 const PAD_LIFT = 0.15;
 const CLOUD_WHITE = new THREE.Color(0xffffff);
@@ -140,7 +142,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   );
   scene.add(water);
 
-  const { group: drone, rotors } = buildDrone();
+  const { group: drone, rotors, tint } = buildDrone();
   scene.add(drone);
 
   const clouds = Array.from({ length: CLOUD_COUNT }, buildCloud);
@@ -197,7 +199,9 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     waypoints: null as readonly Vec3[] | null,
     home: null as Vec3 | null,
     droneAt: new THREE.Vector3(),
+    time: 0,
   };
+  const tintTarget = new THREE.Color();
 
   const syncTerrain = (terrain: Terrain): void => {
     if (cache.terrain === terrain) return;
@@ -337,6 +341,12 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     drone.position.copy(cache.droneAt);
     // The model faces +z; YXZ order applies roll, then pitch, then yaw. Three's +x rotation is nose-down.
     drone.rotation.set(-s.drone.pitch, Math.PI / 2 - s.drone.heading, s.drone.roll, 'YXZ');
+    // Fade the body towards the colour of the current state rather than snapping to it.
+    const fade = 1 - Math.exp(-TINT_RATE * Math.min(Math.max(s.time - cache.time, 0), 0.5));
+    tintTarget.setHex(STATUS_STYLE[statusOf(s)].colour);
+    tint.color.lerp(tintTarget, fade);
+    tint.emissive.copy(tint.color).multiplyScalar(0.3);
+    cache.time = s.time;
     rotors.forEach((rotor, i) => {
       rotor.rotation.y = s.time * ROTOR_SPEED * (i % 2 === 0 ? 1 : -1);
     });

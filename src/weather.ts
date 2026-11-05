@@ -51,6 +51,16 @@ export const startStorm = (w: Weather): Weather => ({
   nextStrikeIn: 1,
 });
 
+/** Strongest storm gust, metres per second; close to the drone's airspeed, so a storm can push it well off course. */
+export const GUST_MAX = 20;
+
+/** Gust velocity at `time`: nil in clear air, swinging in strength and direction with the rain. */
+export const gustAt = (time: number, rain: number): Vec2 => {
+  const strength = GUST_MAX * rain * (0.65 + 0.35 * Math.sin(time * 0.9));
+  const angle = time * 0.12 + 1.5 * Math.sin(time * 0.31);
+  return [Math.cos(angle) * strength, Math.sin(angle) * strength];
+};
+
 /** Advances clouds, the clear/storm cycle, rain and lightning by `dt`. */
 export const stepWeather = (
   w: Weather,

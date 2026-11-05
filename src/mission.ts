@@ -16,6 +16,8 @@ export const RESERVE = 0.1;
 export const ROUTE_FRACTION = 0.7;
 /** Seconds on the pad between landing and the next takeoff. */
 export const GROUND_TIME = 3;
+/** Seconds a lost drone lies where it came down before it is collected and the route replanned. */
+export const LOST_TIME = 5;
 /** Failed attempts on one route before a new one is planned. */
 export const MAX_ATTEMPTS = 3;
 export const TAKEOFF_CLIMB = 4;
@@ -36,7 +38,7 @@ const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 
 /** Battery fraction used per second. Hovering takeoffs and landings, climbs and rain all cost extra. */
 export const drainRate = (phase: Phase, climbRate: number, rain: number): number => {
-  if (phase === 'grounded') return 0;
+  if (phase === 'grounded' || phase === 'lost') return 0;
   const hover = phase === 'takeoff' || phase === 'landing' ? 1.3 : 1;
   const climb = 1 + 0.5 * clamp01(climbRate / 10);
   return (hover * climb * (1 + 0.5 * rain)) / ENDURANCE;
@@ -161,6 +163,22 @@ export const shouldReturn = (
   airSpeed: number,
 ): boolean => battery <= returnEnergy(pos, home, wind, rain, airSpeed) + RESERVE;
 
+/**
+ * True once the drone could reach neither the pad nor its current target on the charge left, however
+ * it flew: past the point of no return with the reserve spent as well.
+ */
+export const isLost = (
+  battery: number,
+  pos: Vec3,
+  home: Vec3,
+  target: Vec3,
+  wind: Vec2,
+  rain: number,
+  airSpeed: number,
+): boolean =>
+  battery < returnEnergy(pos, home, wind, rain, airSpeed) &&
+  battery < returnEnergy(pos, target, wind, rain, airSpeed);
+
 /** Cheap first guess at what forced the flight home; refine later. */
 export const failureReason = (wind: Vec2, rain: number): FailureReason =>
   rain > HEAVY_RAIN ? 'rain' : Math.hypot(wind[0], wind[1]) >= HIGH_WIND ? 'wind' : 'battery';
@@ -176,5 +194,7 @@ export const startMission = (home: Vec3): Mission => ({
   totalTrip: 0,
   successes: 0,
   failures: 0,
+  lost: 0,
+  outcome: null,
   lastFailure: null,
 });

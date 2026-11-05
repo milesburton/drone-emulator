@@ -9,12 +9,13 @@ export interface DroneModel {
   readonly group: THREE.Group;
   /** Rotor groups, front-left first, so alternate ones can spin in opposite directions. */
   readonly rotors: readonly THREE.Object3D[];
+  /** Material of the body and arms; recolour it to show the drone's state. */
+  readonly tint: THREE.MeshLambertMaterial;
 }
 
 const ARM_REACH = 5.2;
 const ROTOR_RADIUS = 3.2;
 
-const BODY = new THREE.MeshLambertMaterial({ color: 0xe8eaed, emissive: 0x333333 });
 const DARK = new THREE.MeshLambertMaterial({ color: 0x24262b });
 const FRONT = new THREE.MeshLambertMaterial({ color: 0xff453a, emissive: 0x551510 });
 const DISC = new THREE.MeshBasicMaterial({
@@ -29,10 +30,14 @@ const at = <T extends THREE.Object3D>(obj: T, x: number, y: number, z: number): 
   return obj;
 };
 
-const buildArm = (sx: number, sz: number): { arm: THREE.Group; rotor: THREE.Group } => {
+const buildArm = (
+  sx: number,
+  sz: number,
+  tint: THREE.Material,
+): { arm: THREE.Group; rotor: THREE.Group } => {
   const arm = new THREE.Group();
   const length = Math.hypot(ARM_REACH, ARM_REACH);
-  const strut = at(new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.5, length), BODY), 0, 0, 0);
+  const strut = at(new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.5, length), tint), 0, 0, 0);
   strut.position.set((sx * ARM_REACH) / 2, 0, (sz * ARM_REACH) / 2);
   strut.rotation.y = Math.atan2(sx, sz);
   const motor = at(
@@ -54,7 +59,8 @@ const buildArm = (sx: number, sz: number): { arm: THREE.Group; rotor: THREE.Grou
 
 export const buildDrone = (): DroneModel => {
   const group = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.4, 4.6), BODY);
+  const tint = new THREE.MeshLambertMaterial({ color: 0xe8eaed, emissive: 0x333333 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.4, 4.6), tint);
   const canopy = at(new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.7, 3), DARK), 0, 0.9, -0.2);
   const nose = at(new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.5, 0.6), FRONT), 0, 0.1, 2.4);
   const gimbal = at(new THREE.Mesh(new THREE.SphereGeometry(0.85, 12, 8), DARK), 0, -1.1, 1.9);
@@ -67,7 +73,7 @@ export const buildDrone = (): DroneModel => {
     [-1, -1],
     [1, -1],
   ] as const;
-  const built = corners.map(([sx, sz]) => buildArm(sx, sz));
+  const built = corners.map(([sx, sz]) => buildArm(sx, sz, tint));
   const skids = [-1, 1].map((side) =>
     at(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 5), DARK), side * 1.9, -2.1, 0),
   );
@@ -78,5 +84,5 @@ export const buildDrone = (): DroneModel => {
   );
 
   group.add(body, canopy, nose, gimbal, lens, ...skids, ...legs, ...built.map(({ arm }) => arm));
-  return { group, rotors: built.map(({ rotor }) => rotor) };
+  return { group, rotors: built.map(({ rotor }) => rotor), tint };
 };

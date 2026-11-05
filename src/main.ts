@@ -1,4 +1,5 @@
 import { describe } from './hud';
+import { STATUS_STYLE, statusOf } from './status';
 import { createView } from './render';
 import {
   applyConfig,
@@ -24,6 +25,7 @@ const byId = <T extends HTMLElement>(id: string): T => {
 const view = createView(byId<HTMLCanvasElement>('scene'));
 const hud = byId('hud');
 const batteryFill = byId('battery-fill');
+const statusBadge = byId('status');
 
 // The single owner of "current" state: the loop replaces these with new values.
 const initialConfig: Config = {
@@ -111,6 +113,9 @@ const frame = (last: number) => (now: number) => {
   model.snapshot = step(model.snapshot, model.terrain, dt);
   view.draw(model.snapshot, model.terrain);
   hud.textContent = describe(model.snapshot);
+  const style = STATUS_STYLE[statusOf(model.snapshot)];
+  statusBadge.textContent = `${style.icon} ${style.label}`;
+  statusBadge.style.color = `#${style.colour.toString(16).padStart(6, '0')}`;
   const { battery } = model.snapshot.mission;
   batteryFill.style.width = `${battery * 100}%`;
   batteryFill.style.background = battery > 0.3 ? '#34c759' : battery > 0.15 ? '#ff9f0a' : '#ff3b30';

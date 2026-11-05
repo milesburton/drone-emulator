@@ -87,6 +87,16 @@
         flex-direction: column;
         gap: 6px;
       }
+      #status {
+        align-self: flex-end;
+        padding: 4px 10px;
+        border-radius: 12px;
+        background: var(--panel);
+        font-weight: 600;
+        font-size: 12px;
+        border: 2px solid currentColor;
+        transition: color 0.6s;
+      }
       #battery {
         height: 14px;
         border-radius: 7px;
@@ -128,10 +138,12 @@
       <button id="river-path" type="button">River Path</button>
       <button id="storm" type="button">Storm</button>
       <div class="legend">
-        White = drone, red = EKF estimate, yellow = waypoints, faint streaks = wind. Drag to orbit.
+        Drone colour = state (blue on course, orange off course, purple returning, green success,
+        red lost), yellow = waypoints, faint streaks = wind. Drag to orbit.
       </div>
     </div>
     <div id="hud-stack">
+      <div id="status" title="Drone status"></div>
       <div id="battery" title="Battery"><div id="battery-fill"></div></div>
       <pre id="hud"></pre>
     </div>

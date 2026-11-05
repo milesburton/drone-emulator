@@ -26,6 +26,7 @@ import {
   findPad,
   fitToRange,
   GROUND_TIME,
+  isLost,
   MAX_ATTEMPTS,
   planRoute,
   RESERVE,
@@ -34,6 +35,7 @@ import {
   routeLimit,
   shouldReturn,
 } from './mission';
+import { crossTrack, statusOf } from './status';
 import { createRoutes, distanceTo, pointAt, tangentAt } from './routes';
 import {
   colourAt,
@@ -48,6 +50,7 @@ import {
   boltPoints,
   cloudBase,
   createWeather,
+  gustAt,
   isStormCloud,
   rainDrops,
   rainStreak,
@@ -507,9 +510,12 @@ describe('sim', () => {
   it('climbs and descends gently on ordinary terrain', () => {
     [1337, 7, 42].forEach((seed) => {
       const states = fly({ ...defaultConfig, seed }, 6000);
+      // A lost drone is collected and set back on the pad, which is a jump rather than a flight.
       const rates = states
         .slice(1)
-        .map((s, i) => Math.abs(s.drone.pos[1] - states[i].drone.pos[1]) / 0.05);
+        .map((s, i) => [states[i], s] as const)
+        .filter(([before]) => before.mission.phase !== 'lost')
+        .map(([before, after]) => Math.abs(after.drone.pos[1] - before.drone.pos[1]) / 0.05);
       expect(Math.max(...rates)).toBeLessThan(25);
     });
   });
@@ -842,6 +848,74 @@ describe('mission', () => {
     );
     expect(result.mission).toMatchObject({ failures: MAX_ATTEMPTS, successes: 0, attempt: 0 });
     expect(result.waypoints).not.toEqual(start.waypoints);
+  });
+
+  it('blows gusts only in rain, stronger the harder it rains', () => {
+    expect(gustAt(12, 0)).toEqual([0, 0]);
+    const mild = Math.hypot(...gustAt(12, 0.3));
+    expect(Math.hypot(...gustAt(12, 1))).toBeGreaterThan(mild);
+    expect(gustAt(12, 1)).toEqual(gustAt(12, 1));
+  });
+
+  it('counts a drone as lost only when neither pad nor target is within reach', () => {
+    const pos = [300, 40, 0] as const;
+    const home = [0, 0, 0] as const;
+    const far = [3000, 40, 0] as const;
+    const need = returnEnergy(pos, home, [0, 0], 0, AIR_SPEED);
+    expect(isLost(need + 0.01, pos, home, far, [0, 0], 0, AIR_SPEED)).toBe(false);
+    expect(isLost(need - 0.01, pos, home, far, [0, 0], 0, AIR_SPEED)).toBe(true);
+    // Still able to reach a target that is closer than the pad.
+    const near = [320, 40, 0] as const;
+    expect(isLost(need - 0.01, pos, home, near, [0, 0], 0, AIR_SPEED)).toBe(false);
+  });
+
+  it('records a lost drone, then collects it and replans from the pad', () => {
+    const up = cruising(start);
+    const stranded = {
+      ...up,
+      drone: { ...up.drone, pos: [900, 60, 900] as const },
+      mission: { ...up.mission, battery: 0.01 },
+    };
+    const down = tick(stranded);
+    expect(down.mission.phase).toBe('lost');
+    expect(statusOf(down)).toBe('lost');
+    const back = until(down, (s) => s.mission.phase === 'grounded');
+    expect(back.mission).toMatchObject({
+      lost: 1,
+      failures: 0,
+      successes: 0,
+      outcome: 'lost',
+      battery: 1,
+    });
+    expect(back.drone.pos).toEqual(back.mission.home);
+    expect(back.waypoints).not.toEqual(start.waypoints);
+    expect(statusOf(back)).toBe('lost');
+    expect(until(back, (s) => s.mission.phase === 'takeoff').mission.outcome).toBeNull();
+  });
+
+  it('reports the state of the flight for colour and badge', () => {
+    expect(statusOf(start)).toBe('ready');
+    const up = cruising(start);
+    expect(statusOf(up)).toBe('onCourse');
+    const astray = {
+      ...up,
+      drone: {
+        ...up.drone,
+        pos: [up.drone.pos[0], up.drone.pos[1], up.drone.pos[2] + 500] as const,
+      },
+    };
+    expect(statusOf(astray)).toBe('offCourse');
+    expect(statusOf({ ...up, mission: { ...up.mission, phase: 'returning' } })).toBe('returning');
+    expect(statusOf({ ...start, mission: { ...start.mission, outcome: 'success' } })).toBe(
+      'success',
+    );
+    expect(statusOf({ ...start, mission: { ...start.mission, outcome: 'failed' } })).toBe('failed');
+  });
+
+  it('measures how far the drone is from its leg', () => {
+    expect(crossTrack([5, 0, 3], [0, 0, 0], [10, 0, 0])).toBeCloseTo(3);
+    expect(crossTrack([-4, 0, 3], [0, 0, 0], [10, 0, 0])).toBeCloseTo(5);
+    expect(crossTrack([4, 0, 3], [0, 0, 0], [0, 0, 0])).toBeCloseTo(5);
   });
 
   it('prices the way home higher in rain and into the wind', () => {

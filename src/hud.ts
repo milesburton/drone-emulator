@@ -1,5 +1,6 @@
 import { pressureOf, windBiasOf } from './ekf';
 import { MAX_ATTEMPTS } from './mission';
+import { STATUS_STYLE, statusOf } from './status';
 import type { Snapshot } from './types';
 
 const fixed = (v: number, digits = 1): string => v.toFixed(digits);
@@ -14,10 +15,11 @@ export const describe = (s: Snapshot): string => {
   const why = m.lastFailure ? `, last: ${m.lastFailure}` : '';
   return [
     `t        ${fixed(s.time, 0)} s`,
+    `status   ${STATUS_STYLE[statusOf(s)].label}`,
     `phase    ${m.phase}${retry}`,
     `battery  ${fixed(m.battery * 100, 0)}%`,
     `trip     ${fixed(m.trip, 0)} m (total ${fixed(m.totalTrip, 0)} m)`,
-    `flights  ${m.successes} ok, ${m.failures} failed${why}`,
+    `flights  ${m.successes} ok, ${m.failures} failed, ${m.lost} lost${why}`,
     `waypoint ${s.drone.wp + 1}/${s.waypoints.length}`,
     `position ${fixed(x, 0)}, ${fixed(y, 0)}, ${fixed(z, 0)}`,
     `EKF err  ${fixed(error)} m`,

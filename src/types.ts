@@ -48,7 +48,10 @@ export interface Drone {
   readonly roll: number;
 }
 
-export type Phase = 'grounded' | 'takeoff' | 'cruise' | 'returning' | 'landing';
+export type Phase = 'grounded' | 'takeoff' | 'cruise' | 'returning' | 'landing' | 'lost';
+
+/** How the last flight ended. */
+export type Outcome = 'success' | 'failed' | 'lost';
 
 /** Why a flight was abandoned; only the cheap cases are told apart so far. */
 export type FailureReason = 'battery' | 'wind' | 'rain' | 'distance' | 'unknown';
@@ -71,6 +74,10 @@ export interface Mission {
   readonly totalTrip: number;
   readonly successes: number;
   readonly failures: number;
+  /** Flights that went so far astray the drone could neither get home nor reach its target. */
+  readonly lost: number;
+  /** How the last flight ended; cleared at takeoff. */
+  readonly outcome: Outcome | null;
   readonly lastFailure: FailureReason | null;
 }
 
