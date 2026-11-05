@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GRAVITY } from './crash';
+import { GRAVITY, surfaceAt } from './crash';
 import { next } from './rng';
 import type { Terrain } from './terrain';
 import type { Vec2, Vec3 } from './types';
@@ -98,7 +98,7 @@ export const buildCrashFx = (): CrashFx => {
       const t = Math.min(since, (2 * vel[1]) / GRAVITY);
       const px = x + vel[0] * t;
       const pz = z + vel[2] * t;
-      const py = Math.max(y + vel[1] * t - 0.5 * GRAVITY * t * t, terrain.heightAt(px, pz) + 0.2);
+      const py = Math.max(y + vel[1] * t - 0.5 * GRAVITY * t * t, surfaceAt(terrain, px, pz) + 0.2);
       mesh.position.set(px, py, pz);
       mesh.rotation.set(spin[0] * t, spin[1] * t, spin[2] * t);
     });
