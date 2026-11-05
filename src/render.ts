@@ -5,6 +5,7 @@ import { buildBridges } from './bridgeModel';
 import { hasImpacted } from './crash';
 import { buildCrashFx } from './crashFx';
 import { buildDrone } from './droneModel';
+import { buildAirlinerFx } from './airlinersFx';
 import { buildFlag, faceDownwind } from './flags';
 import { STATUS_STYLE, statusOf } from './status';
 import { disturbance, windStrength } from './sway';
@@ -276,6 +277,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   scene.add(drone);
   const crashFx = buildCrashFx();
   scene.add(crashFx.group);
+  const airliners = buildAirlinerFx();
+  scene.add(airliners.group);
 
   const clouds = Array.from({ length: CLOUD_COUNT }, buildCloud);
   clouds.forEach((c) => scene.add(c));
@@ -518,6 +521,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     swayUniforms.uWind.value = strength;
     swayUniforms.uDir.value.copy(air.length() > 0.1 ? air.normalize() : air.set(0, 0));
     const wobble = disturbance(s.time, strength);
+    airliners.update(s.config.seed, s.time, terrain.extent);
     s.weather.clouds.forEach((c, i) => {
       clouds[i].position.set(c.x, c.y, c.z);
       clouds[i].scale.setScalar(c.radius);
