@@ -7,7 +7,7 @@ import { buildFlag, faceDownwind } from './flags';
 import { STATUS_STYLE, statusOf } from './status';
 import { disturbance, windStrength } from './sway';
 import { swayUniforms } from './swayMaterial';
-import { carsAt, createDrivers, type Driver } from './traffic';
+import { advanceTo, carsAt, createDrivers, createFleet, type Driver, type Fleet } from './traffic';
 import { buildTraffic, type Traffic } from './trafficModel';
 import { buildForest } from './treeModel';
 import { placeTrees } from './trees';
@@ -317,6 +317,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   const cache = {
     terrain: null as Terrain | null,
     drivers: [] as readonly Driver[],
+    fleet: null as Fleet | null,
     traffic: null as Traffic | null,
     mesh: null as THREE.Mesh | null,
     roads: [] as THREE.Mesh[],
@@ -335,6 +336,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
       disposeObject(m);
     });
     cache.drivers = createDrivers(terrain);
+    cache.fleet = createFleet(terrain, cache.drivers);
     cache.traffic = buildTraffic(cache.drivers);
     traffic.add(cache.traffic.group);
   };
@@ -483,7 +485,12 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     syncWaypoints(s.waypoints, terrain);
     syncPad(s.mission.home);
     syncForest(terrain, s.mission.home);
-    cache.traffic?.update(carsAt(terrain, cache.drivers, s.time));
+    if (cache.fleet) {
+      // A restart rewinds the clock; start the traffic over rather than running it backwards.
+      const base = cache.fleet.time > s.time ? createFleet(terrain, cache.drivers) : cache.fleet;
+      cache.fleet = advanceTo(terrain, cache.drivers, base, s.time);
+      cache.traffic?.update(carsAt(terrain, cache.drivers, cache.fleet, s.time));
+    }
     markers.children.forEach((flag) => faceDownwind(flag, s.config.windX, s.config.windZ));
     const gust = gustAt(s.time, s.weather.rain);
     const strength = windStrength(s.config.windX, s.config.windZ, gust);
