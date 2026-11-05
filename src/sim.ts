@@ -37,6 +37,7 @@ const PROCESS_VARIANCE = [0.05, 0.05, 0.02, 0.02, 1.5];
 const MEASUREMENT_VARIANCE = [GPS_SIGMA ** 2, GPS_SIGMA ** 2, BARO_SIGMA ** 2];
 
 export const defaultConfig: Config = {
+  mode: 'sortie',
   seed: 1337,
   biome: 'valley',
   windX: 6,

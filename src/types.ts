@@ -2,7 +2,11 @@ import type { Biome } from './biome';
 export type Vec2 = readonly [number, number];
 export type Vec3 = readonly [number, number, number];
 
+/** Long cross-country sorties, or laps of a small gate-and-obstacle track. */
+export type Mode = 'sortie' | 'track';
+
 export interface Config {
+  readonly mode: Mode;
   readonly seed: number;
   readonly biome: Biome;
   readonly windX: number;

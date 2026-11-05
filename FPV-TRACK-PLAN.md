@@ -55,6 +55,11 @@ Go with A. Also add a mode-specific speed (about 20 m/s) so corners are flyable 
    pylons, a ghost line on the ground, lap and gate panel next to the existing cluster. Gate and
    obstacle meshes are instanced, built once per seed like the trees.
 
+## Progress
+
+- Phase 1 done 2026-11-05: `track.ts` (generator, arena search), `Config.mode`, 7 tests. ADR: homelab-docs `adr-drone-emulator-fpv-track`.
+  Decisions taken: option A (current drone), autopilot only, mode toggle.
+
 ## Phases
 
 | #   | Deliverable                                                                    | Verified by                                              |
