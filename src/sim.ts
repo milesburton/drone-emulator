@@ -36,6 +36,7 @@ const MEASUREMENT_VARIANCE = [GPS_SIGMA ** 2, GPS_SIGMA ** 2, BARO_SIGMA ** 2];
 
 export const defaultConfig: Config = {
   seed: 1337,
+  biome: 'valley',
   windX: 6,
   windZ: -3,
   terrainScale: 60,

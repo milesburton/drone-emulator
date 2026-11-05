@@ -1,8 +1,10 @@
+import type { Biome } from './biome';
 export type Vec2 = readonly [number, number];
 export type Vec3 = readonly [number, number, number];
 
 export interface Config {
   readonly seed: number;
+  readonly biome: Biome;
   readonly windX: number;
   readonly windZ: number;
   readonly terrainScale: number;

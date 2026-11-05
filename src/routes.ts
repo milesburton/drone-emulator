@@ -1,5 +1,5 @@
 import { createNoise2D } from 'simplex-noise';
-import { characterOf } from './character';
+import { characterFor } from './biome';
 import { ranges, toRandomFn } from './rng';
 import type { Config, Vec2 } from './types';
 
@@ -54,7 +54,7 @@ const wander =
 /** Builds the river and the crossing roads from the seed; nothing here is random at call time. */
 export const createRoutes = (cfg: Config): Routes => {
   const size = cfg.worldSize;
-  const character = characterOf(cfg.seed);
+  const character = characterFor(cfg);
   const noise = createNoise2D(toRandomFn(cfg.seed ^ 0x51ed270b));
   const [baselines] = ranges(cfg.seed ^ 0x2545f491, 4, -0.2 * size, 0.2 * size);
   return {

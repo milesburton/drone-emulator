@@ -1,3 +1,4 @@
+import { profileOf } from './biome';
 import { distanceTo } from './routes';
 import { ROAD_HALF_WIDTH, type Terrain } from './terrain';
 import { toRandomFn } from './rng';
@@ -47,6 +48,7 @@ export const placeTrees = (terrain: Terrain, pad: Vec3 | null): readonly Tree[] 
   const { cfg, waterLevel } = terrain;
   const reach = cfg.worldSize * REACH;
   const cells = Math.ceil(reach / CELL);
+  const density = profileOf(cfg.biome).treeDensity;
   const treeline = waterLevel + cfg.terrainScale * 1.3 * LINE_ABOVE_GRASS;
   return Array.from({ length: 2 * cells }, (_, a) => a - cells).flatMap((i) =>
     Array.from({ length: 2 * cells }, (_, b) => b - cells).flatMap((j): readonly Tree[] => {
@@ -54,7 +56,7 @@ export const placeTrees = (terrain: Terrain, pad: Vec3 | null): readonly Tree[] 
       const x = (i + rand()) * CELL;
       const z = (j + rand()) * CELL;
       const patch = Math.sin(x * 0.011 + cfg.seed) * Math.sin(z * 0.013 - cfg.seed * 0.5);
-      if (rand() > 0.55 + 0.6 * patch) return [];
+      if (rand() > density * (0.55 + 0.6 * patch)) return [];
       const y = terrain.heightAt(x, z);
       const clear =
         y > waterLevel + ABOVE_WATER &&

@@ -1,3 +1,4 @@
+import { BIOMES, profileOf, type Biome } from './biome';
 import { describe } from './hud';
 import { STATUS_STYLE, statusOf } from './status';
 import { createView } from './render';
@@ -68,6 +69,14 @@ const bindToggle = (id: 'lakes' | 'river' | 'roads'): void => {
     riverPath.disabled = !model.terrain.routes.river;
   });
 };
+
+const biomeSelect = byId<HTMLSelectElement>('biome');
+BIOMES.forEach((b) => biomeSelect.add(new Option(profileOf(b).label, b)));
+biomeSelect.value = defaultConfig.biome;
+biomeSelect.addEventListener('change', () => {
+  configure({ biome: biomeSelect.value as Biome });
+  riverPath.disabled = !model.terrain.routes.river;
+});
 
 bindToggle('lakes');
 bindToggle('river');

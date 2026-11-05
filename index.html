@@ -48,6 +48,10 @@
         display: block;
         margin: 8px 0 2px;
       }
+      select {
+        width: 100%;
+        margin-bottom: 6px;
+      }
       input[type='range'] {
         width: 100%;
       }
@@ -126,6 +130,8 @@
       <input id="windZ" type="range" min="-20" max="20" step="1" />
       <label for="terrainScale">Terrain scale <span id="terrainScale-value"></span> m</label>
       <input id="terrainScale" type="range" min="10" max="150" step="5" />
+      <label for="biome">Biome</label>
+      <select id="biome"></select>
       <label><input id="lakes" type="checkbox" /> Lakes</label>
       <label><input id="river" type="checkbox" /> River</label>
       <label><input id="roads" type="checkbox" /> Roads</label>

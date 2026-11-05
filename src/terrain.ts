@@ -1,5 +1,5 @@
 import { createNoise2D } from 'simplex-noise';
-import { characterOf } from './character';
+import { characterFor, profileOf } from './biome';
 import { toRandomFn } from './rng';
 import { searchPad } from './pad';
 import { createRoutes, distanceTo, pointAt, tangentAt, type Route, type Routes } from './routes';
@@ -34,9 +34,16 @@ const mix = (a: Rgb, b: Rgb, t: number): Rgb => [
 
 /** Terrain-affecting config fields; if this key is unchanged the terrain can be reused. */
 export const terrainKey = (cfg: Config): string =>
-  [cfg.seed, cfg.terrainScale, cfg.worldSize, cfg.resolution, cfg.lakes, cfg.river, cfg.roads].join(
-    ':',
-  );
+  [
+    cfg.seed,
+    cfg.biome,
+    cfg.terrainScale,
+    cfg.worldSize,
+    cfg.resolution,
+    cfg.lakes,
+    cfg.river,
+    cfg.roads,
+  ].join(':');
 
 const HILL_FREQUENCY = 1 / 380;
 const BANK_RATIO = 3.3;
@@ -173,7 +180,7 @@ export const createTerrain = (cfg: Config): Terrain => {
   const hills = createNoise2D(toRandomFn(cfg.seed));
   const lakeNoise = createNoise2D(toRandomFn(cfg.seed ^ 0x9e3779b9));
   const routes = createRoutes(cfg);
-  const character = characterOf(cfg.seed);
+  const character = characterFor(cfg);
   const relief = cfg.terrainScale * character.relief;
   const channelHalfWidth = character.riverHalfWidth;
   const bankWidth = channelHalfWidth * BANK_RATIO;
@@ -308,21 +315,16 @@ export const roadRibbon = (road: Route, terrain: Terrain): readonly Vec3[] =>
     ] as const;
   });
 
-const SAND: Rgb = [0.78, 0.72, 0.5];
-const GRASS_LOW: Rgb = [0.22, 0.48, 0.18];
-const GRASS_HIGH: Rgb = [0.42, 0.55, 0.22];
-const ROCK: Rgb = [0.45, 0.42, 0.4];
-const SNOW: Rgb = [0.95, 0.96, 0.98];
-
-/** Colours a point by height relative to the water level and the terrain scale. */
+/** Colours a point by height relative to the water level and the terrain scale, in the biome's palette. */
 export const colourAt = (height: number, terrain: Terrain): Rgb => {
   const { waterLevel, cfg } = terrain;
-  const above = height - waterLevel;
+  const { shore, low, high, rock, peak, bands } = profileOf(cfg.biome).palette;
+  const [b0, b1, b2, b3] = bands;
   const range = Math.max(cfg.terrainScale * 1.3, 1);
-  const t = above / range;
-  if (t < 0.03) return SAND;
-  if (t < 0.12) return mix(SAND, GRASS_LOW, smoothstep(0.03, 0.12, t));
-  if (t < 0.5) return mix(GRASS_LOW, GRASS_HIGH, smoothstep(0.12, 0.5, t));
-  if (t < 0.7) return mix(GRASS_HIGH, ROCK, smoothstep(0.5, 0.7, t));
-  return mix(ROCK, SNOW, smoothstep(0.7, 0.85, t));
+  const t = (height - waterLevel) / range;
+  if (t < b0) return shore;
+  if (t < b1) return mix(shore, low, smoothstep(b0, b1, t));
+  if (t < b2) return mix(low, high, smoothstep(b1, b2, t));
+  if (t < b3) return mix(high, rock, smoothstep(b2, b3, t));
+  return mix(rock, peak, smoothstep(b3, b3 + 0.15, t));
 };
