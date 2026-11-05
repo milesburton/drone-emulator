@@ -1,6 +1,6 @@
 import { BIOMES, profileOf, type Biome } from './biome';
-import { describe } from './hud';
-import { STATUS_STYLE, statusOf } from './status';
+import { createCluster } from './cluster';
+import { readouts } from './hud';
 import { createView } from './render';
 import {
   applyConfig,
@@ -25,9 +25,7 @@ const byId = <T extends HTMLElement>(id: string): T => {
 };
 
 const view = createView(byId<HTMLCanvasElement>('scene'));
-const hud = byId('hud');
-const batteryFill = byId('battery-fill');
-const statusBadge = byId('status');
+const paintCluster = createCluster(byId('cluster'));
 
 // The single owner of "current" state: the loop replaces these with new values.
 const initialConfig: Config = {
@@ -129,18 +127,20 @@ stormBox.addEventListener('change', () => {
 window.addEventListener('resize', view.resize);
 view.resize();
 
+// Ground speed is measured from how far the drone moved, smoothed so the gauge does not flicker.
+let lastPos: readonly [number, number] = [model.snapshot.drone.pos[0], model.snapshot.drone.pos[2]];
+let groundSpeed = 0;
+
 const frame = (last: number) => (now: number) => {
   const dt = Math.min((now - last) / 1000, 0.05);
   model.snapshot = step(model.snapshot, model.terrain, dt);
   view.draw(model.snapshot, model.terrain);
   stormBox.checked = model.snapshot.weather.phase === 'storm';
-  hud.textContent = describe(model.snapshot);
-  const style = STATUS_STYLE[statusOf(model.snapshot)];
-  statusBadge.textContent = `${style.icon} ${style.label}`;
-  statusBadge.style.color = `#${style.colour.toString(16).padStart(6, '0')}`;
-  const { battery } = model.snapshot.mission;
-  batteryFill.style.width = `${battery * 100}%`;
-  batteryFill.style.background = battery > 0.3 ? '#34c759' : battery > 0.15 ? '#ff9f0a' : '#ff3b30';
+  const [px, , pz] = model.snapshot.drone.pos;
+  const moved = Math.hypot(px - lastPos[0], pz - lastPos[1]) / Math.max(dt, 1e-3);
+  groundSpeed += (moved - groundSpeed) * Math.min(dt * 4, 1);
+  lastPos = [px, pz];
+  paintCluster(readouts(model.snapshot, model.terrain, groundSpeed));
   requestAnimationFrame(frame(now));
 };
 requestAnimationFrame((now) => requestAnimationFrame(frame(now)));

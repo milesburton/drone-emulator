@@ -74,37 +74,67 @@
         font-weight: 600;
         cursor: pointer;
       }
-      #hud {
-        margin: 0;
-        padding: 10px 12px;
-        border-radius: 8px;
+      #cluster {
+        position: fixed;
+        left: 50%;
+        bottom: 12px;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 10px 18px;
+        border-radius: 14px;
         background: var(--panel);
         font:
-          12px/1.5 ui-monospace,
+          12px/1.4 ui-monospace,
           monospace;
+        /* Display only: clicks and drags go straight through to the scene. */
+        pointer-events: none;
+        user-select: none;
+        max-width: calc(100vw - 24px);
       }
-      #hud-stack {
-        position: fixed;
-        right: 12px;
-        bottom: 12px;
-        display: flex;
-        flex-direction: column;
+      #cluster .group {
+        display: grid;
         gap: 6px;
+        min-width: 150px;
+      }
+      #cluster .dial-box {
+        display: grid;
+        justify-items: center;
+        gap: 2px;
+      }
+      #cluster .big {
+        font-size: 20px;
+        font-weight: 700;
+      }
+      #cluster .unit,
+      #cluster .cap {
+        opacity: 0.6;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      #cluster .pair {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: baseline;
+      }
+      #cluster .pair b {
+        font-weight: 600;
       }
       #status {
-        align-self: flex-end;
-        padding: 4px 10px;
+        justify-self: start;
+        padding: 3px 10px;
         border-radius: 12px;
-        background: var(--panel);
         font-weight: 600;
-        font-size: 12px;
         border: 2px solid currentColor;
         transition: color 0.6s;
       }
       #battery {
-        height: 14px;
-        border-radius: 7px;
-        background: var(--panel);
+        height: 12px;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.12);
         overflow: hidden;
       }
       #battery-fill {
@@ -112,6 +142,41 @@
         width: 100%;
         background: #34c759;
         transition: width 0.2s;
+      }
+      #compass .dial {
+        fill: rgba(8, 12, 20, 0.55);
+        stroke: rgba(255, 255, 255, 0.35);
+        stroke-width: 2;
+      }
+      #compass .ticks line {
+        stroke: rgba(255, 255, 255, 0.6);
+      }
+      #compass .card {
+        fill: #e8eaed;
+        font-size: 11px;
+        font-weight: 700;
+        text-anchor: middle;
+      }
+      #compass .card.north {
+        fill: #ff453a;
+      }
+      #compass .shaft {
+        stroke: var(--accent);
+        stroke-width: 4;
+        stroke-linecap: round;
+      }
+      #compass .head {
+        fill: var(--accent);
+      }
+      #compass .hub {
+        fill: #e8eaed;
+      }
+      @media (max-width: 760px) {
+        #cluster {
+          flex-wrap: wrap;
+          justify-content: center;
+          gap: 8px 14px;
+        }
       }
       .legend {
         margin-top: 10px;
@@ -150,10 +215,89 @@
         down); release to return to the drone.
       </div>
     </div>
-    <div id="hud-stack">
-      <div id="status" title="Drone status"></div>
-      <div id="battery" title="Battery"><div id="battery-fill"></div></div>
-      <pre id="hud"></pre>
+    <div id="cluster" aria-hidden="true">
+      <div class="group">
+        <div id="status" data-f="status"></div>
+        <div class="pair"><span class="cap">Phase</span><b data-f="phase"></b></div>
+        <div id="battery"><div id="battery-fill"></div></div>
+        <div class="pair"><span class="cap">Battery</span><b data-f="battery"></b></div>
+        <div class="pair"><span class="cap">Waypoint</span><b data-f="waypoint"></b></div>
+        <div class="pair"><span class="cap">Trip</span><b data-f="trip"></b></div>
+      </div>
+      <div class="dial-box">
+        <svg id="compass" viewBox="-70 -70 140 140" width="150" height="150">
+          <circle r="66" class="dial" />
+          <g class="ticks">
+            <line x1="0.0" y1="-64.0" x2="0.0" y2="-56.0" stroke-width="2" />
+            <line x1="11.1" y1="-63.0" x2="10.6" y2="-60.1" stroke-width="1" />
+            <line x1="21.9" y1="-60.1" x2="20.9" y2="-57.3" stroke-width="1" />
+            <line x1="32.0" y1="-55.4" x2="29.5" y2="-51.1" stroke-width="1" />
+            <line x1="41.1" y1="-49.0" x2="39.2" y2="-46.7" stroke-width="1" />
+            <line x1="49.0" y1="-41.1" x2="46.7" y2="-39.2" stroke-width="1" />
+            <line x1="55.4" y1="-32.0" x2="51.1" y2="-29.5" stroke-width="1" />
+            <line x1="60.1" y1="-21.9" x2="57.3" y2="-20.9" stroke-width="1" />
+            <line x1="63.0" y1="-11.1" x2="60.1" y2="-10.6" stroke-width="1" />
+            <line x1="64.0" y1="-0.0" x2="56.0" y2="-0.0" stroke-width="2" />
+            <line x1="63.0" y1="11.1" x2="60.1" y2="10.6" stroke-width="1" />
+            <line x1="60.1" y1="21.9" x2="57.3" y2="20.9" stroke-width="1" />
+            <line x1="55.4" y1="32.0" x2="51.1" y2="29.5" stroke-width="1" />
+            <line x1="49.0" y1="41.1" x2="46.7" y2="39.2" stroke-width="1" />
+            <line x1="41.1" y1="49.0" x2="39.2" y2="46.7" stroke-width="1" />
+            <line x1="32.0" y1="55.4" x2="29.5" y2="51.1" stroke-width="1" />
+            <line x1="21.9" y1="60.1" x2="20.9" y2="57.3" stroke-width="1" />
+            <line x1="11.1" y1="63.0" x2="10.6" y2="60.1" stroke-width="1" />
+            <line x1="0.0" y1="64.0" x2="0.0" y2="56.0" stroke-width="2" />
+            <line x1="-11.1" y1="63.0" x2="-10.6" y2="60.1" stroke-width="1" />
+            <line x1="-21.9" y1="60.1" x2="-20.9" y2="57.3" stroke-width="1" />
+            <line x1="-32.0" y1="55.4" x2="-29.5" y2="51.1" stroke-width="1" />
+            <line x1="-41.1" y1="49.0" x2="-39.2" y2="46.7" stroke-width="1" />
+            <line x1="-49.0" y1="41.1" x2="-46.7" y2="39.2" stroke-width="1" />
+            <line x1="-55.4" y1="32.0" x2="-51.1" y2="29.5" stroke-width="1" />
+            <line x1="-60.1" y1="21.9" x2="-57.3" y2="20.9" stroke-width="1" />
+            <line x1="-63.0" y1="11.1" x2="-60.1" y2="10.6" stroke-width="1" />
+            <line x1="-64.0" y1="0.0" x2="-56.0" y2="0.0" stroke-width="2" />
+            <line x1="-63.0" y1="-11.1" x2="-60.1" y2="-10.6" stroke-width="1" />
+            <line x1="-60.1" y1="-21.9" x2="-57.3" y2="-20.9" stroke-width="1" />
+            <line x1="-55.4" y1="-32.0" x2="-51.1" y2="-29.5" stroke-width="1" />
+            <line x1="-49.0" y1="-41.1" x2="-46.7" y2="-39.2" stroke-width="1" />
+            <line x1="-41.1" y1="-49.0" x2="-39.2" y2="-46.7" stroke-width="1" />
+            <line x1="-32.0" y1="-55.4" x2="-29.5" y2="-51.1" stroke-width="1" />
+            <line x1="-21.9" y1="-60.1" x2="-20.9" y2="-57.3" stroke-width="1" />
+            <line x1="-11.1" y1="-63.0" x2="-10.6" y2="-60.1" stroke-width="1" />
+          </g>
+          <text class="card north" x="0" y="-41">N</text>
+          <text class="card" x="43" y="4">E</text>
+          <text class="card" x="0" y="48">S</text>
+          <text class="card" x="-43" y="4">W</text>
+          <g id="heading-marker"><polygon points="-6,-66 6,-66 0,-54" /></g>
+          <g id="wind-arrow">
+            <line x1="0" y1="26" x2="0" y2="-28" class="shaft" />
+            <polygon points="-9,-24 0,-40 9,-24" class="head" />
+          </g>
+          <circle r="3.5" class="hub" />
+        </svg>
+        <div class="pair">
+          <span class="big" data-f="wind-speed"></span><span class="unit">m/s</span>
+          <span data-f="wind-knots"></span>
+        </div>
+        <div data-f="wind-from"></div>
+        <div class="cap" data-f="wind-est"></div>
+      </div>
+      <div class="group">
+        <div class="pair">
+          <span class="cap">Speed</span
+          ><span><span class="big" data-f="speed"></span> <span class="unit">m/s</span></span>
+        </div>
+        <div class="pair">
+          <span class="cap">Altitude</span
+          ><span><span class="big" data-f="altitude"></span> <span class="unit">m</span></span>
+        </div>
+        <div class="pair"><span class="cap">Heading</span><b data-f="heading"></b></div>
+        <div class="pair"><span class="cap">Flights</span><b data-f="flights"></b></div>
+        <div class="pair"><span class="cap">Weather</span><b data-f="weather"></b></div>
+        <div class="pair"><span class="cap">EKF err</span><b data-f="ekf"></b></div>
+        <div class="pair"><span class="cap">Pressure</span><b data-f="pressure"></b></div>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
