@@ -60,6 +60,17 @@ const FOG_NEAR = 600;
 const FOG_FAR = 4200;
 const TINT_RATE = 3;
 const PAD_RADIUS = 8;
+/** How far past the pad's edge the finish flag stands. */
+const FLAG_GAP = 10;
+
+/** Beside the pad, to the left of the first leg, so the flag is never under the drone's takeoff or landing. */
+export const finishFlagSpot = (waypoints: readonly Vec3[]): readonly [number, number] => {
+  const [hx, , hz] = waypoints[0];
+  const [nx, , nz] = waypoints[1] ?? waypoints[0];
+  const len = Math.hypot(nx - hx, nz - hz) || 1;
+  const offset = PAD_RADIUS + FLAG_GAP;
+  return [hx + (-(nz - hz) / len) * offset, hz + ((nx - hx) / len) * offset];
+};
 const PAD_LIFT = 0.15;
 const CLOUD_WHITE = new THREE.Color(0xffffff);
 const CLOUD_STORM = new THREE.Color(0x4f5560);
@@ -377,7 +388,9 @@ export const createView = (canvas: HTMLCanvasElement): View => {
       disposeObject(m);
     });
     // The route is a round trip, so the first waypoint (the pad) is also the finish line.
-    waypoints.forEach(([x, y, z], i) => {
+    waypoints.forEach(([wx, y, wz], i) => {
+      // The finish flag stands beside the pad, not on it, so the craft visibly lifts from and lands on the pad.
+      const [x, z] = i === 0 ? finishFlagSpot(waypoints) : [wx, wz];
       const ground = terrain.heightAt(x, z);
       const flag = buildFlag(y - ground, i === 0 ? 'finish' : i);
       flag.position.set(x, ground, z);

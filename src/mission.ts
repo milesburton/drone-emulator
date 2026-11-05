@@ -1,4 +1,4 @@
-import { seatWaypoint } from './altitude';
+import { flightLine, seatWaypoint } from './altitude';
 import { searchPad } from './pad';
 import type { Terrain } from './terrain';
 import type { Config, FailureReason, Mission, Phase, Vec2, Vec3 } from './types';
@@ -57,7 +57,65 @@ export const fitToRange = (waypoints: readonly Vec3[], limit: number): readonly 
     ? fitToRange(waypoints.slice(0, -1), limit)
     : waypoints;
 
-/** A fresh route that starts and ends over the pad and fits the battery. */
+/** Candidate waypoints planned per route; only as many as fit the battery are flown. */
+const CANDIDATES = 40;
+const BISECTIONS = 12;
+/** Charge a planned route may use: the rest is the reserve, so a sortie lands at about 10% or less. */
+export const ENERGY_BUDGET = 0.65;
+/** Rain the plan allows for: the weather is wet about half the time, so a plan for dry air would often run short. */
+export const PLANNED_RAIN = 0.6;
+/** Charge spent on takeoff and landing hovers, which the cruise legs do not count. */
+const HOVER_OVERHEAD = 0.04;
+
+/** Charge a closed route costs in light rain, using the same drain model as the flight, climbs included. */
+export const routeEnergy = (
+  waypoints: readonly Vec3[],
+  terrain: Terrain,
+  airSpeed: number,
+): number => {
+  const line = flightLine(waypoints, terrain);
+  return (
+    HOVER_OVERHEAD +
+    line.reduce((sum, p, i) => {
+      const q = line[(i + 1) % line.length];
+      const time = legLength(p, q) / airSpeed;
+      return sum + (time > 0 ? drainRate('cruise', (q[1] - p[1]) / time, PLANNED_RAIN) * time : 0);
+    }, 0)
+  );
+};
+
+/**
+ * Builds the round trip from `home` by taking candidates in order while the loop still costs no more
+ * than `budget`. The first candidate that would not fit is pulled back along its leg until the loop
+ * just fits, so the route uses nearly all of the allowance instead of stopping short of it.
+ */
+export const fillToBudget = (
+  home: Vec3,
+  candidates: readonly Vec3[],
+  budget: number,
+  cost: (route: readonly Vec3[]) => number,
+  seat: (x: number, z: number) => Vec3,
+): readonly Vec3[] =>
+  candidates.reduce<{ route: readonly Vec3[]; done: boolean }>(
+    (acc, cand) => {
+      if (acc.done) return acc;
+      const prev = acc.route[acc.route.length - 1];
+      if (cost([...acc.route, cand]) <= budget) return { route: [...acc.route, cand], done: false };
+      const point = (t: number): Vec3 =>
+        seat(prev[0] + (cand[0] - prev[0]) * t, prev[2] + (cand[2] - prev[2]) * t);
+      const t = Array.from({ length: BISECTIONS }).reduce<readonly [number, number]>(
+        ([lo, hi]) => {
+          const mid = (lo + hi) / 2;
+          return cost([...acc.route, point(mid)]) <= budget ? [mid, hi] : [lo, mid];
+        },
+        [0, 1],
+      )[0];
+      return { route: t > 0.05 ? [...acc.route, point(t)] : acc.route, done: true };
+    },
+    { route: [home], done: false },
+  ).route;
+
+/** A fresh route that starts and ends over the pad and uses nearly all of the battery allowance. */
 export const planRoute = (
   cfg: Config,
   terrain: Terrain,
@@ -65,9 +123,17 @@ export const planRoute = (
   home: Vec3,
   airSpeed: number,
 ): readonly [readonly Vec3[], number] => {
-  const [generated, r] = generateWaypoints(cfg, terrain, rng);
-  const route = [seatWaypoint(terrain, home[0], home[2]), ...generated.slice(1)];
-  return [fitToRange(route, routeLimit(airSpeed)), r];
+  const [generated, r] = generateWaypoints(cfg, terrain, rng, CANDIDATES);
+  const start = seatWaypoint(terrain, home[0], home[2]);
+  const route = fillToBudget(
+    start,
+    generated.slice(1),
+    ENERGY_BUDGET,
+    (w) => routeEnergy(w, terrain, airSpeed),
+    (x, z) => seatWaypoint(terrain, x, z),
+  );
+  // Always keep the pad and at least one more point.
+  return [route.length > 1 ? route : [start, generated[1]], r];
 };
 
 /**

@@ -36,7 +36,7 @@ suite('readouts', () => {
 
   it('summarises the flight', () => {
     const r = readouts(fresh(), terrain, 3.4);
-    expect(r.waypoint).toBe('2/6');
+    expect(r.waypoint).toBe(`2/${fresh().waypoints.length}`);
     expect(r.weather).toContain('clear');
     expect(r.groundSpeed).toBe(3.4);
     expect(r.battery).toBeGreaterThan(0);
