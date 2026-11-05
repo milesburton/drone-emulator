@@ -335,7 +335,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
       disposeObject(m);
     });
     cache.drivers = createDrivers(terrain);
-    cache.traffic = buildTraffic(cache.drivers.length);
+    cache.traffic = buildTraffic(cache.drivers);
     traffic.add(cache.traffic.group);
   };
 
