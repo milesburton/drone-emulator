@@ -1,5 +1,6 @@
 import { CLEARANCE, nextAltitude, seatWaypoint } from './altitude';
 import { nextAttitude } from './attitude';
+import { hitsCraft } from './craft';
 import { beginCrash, fall, hasHitTerrain, hasImpacted } from './crash';
 import { initEkf, predict, update, MEASUREMENT_MATRIX } from './ekf';
 import {
@@ -338,7 +339,10 @@ const transition = (s: Snapshot, motion: Motion, terrain: Terrain): Snapshot => 
 export const step = (s: Snapshot, terrain: Terrain, dt: number): Snapshot => {
   const { config: cfg } = s;
   const inAir = s.mission.phase === 'cruise' || s.mission.phase === 'returning';
-  if (inAir && hasHitTerrain(s.drone.pos, terrain)) {
+  if (
+    inAir &&
+    (hasHitTerrain(s.drone.pos, terrain) || hitsCraft(s.drone.pos, cfg.seed, s.time, terrain))
+  ) {
     const gust = gustAt(s.time, s.weather.rain);
     return loseFlight(s, [cfg.windX + gust[0], cfg.windZ + gust[1]], 'impact');
   }

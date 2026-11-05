@@ -5,5 +5,5 @@
 3. Hitting a mountain, another craft, or water = crashed. DONE for mountain + water (own "crashed" metric, 10 s wait, reset to pad); other-craft collision waits on item 6 (no other craft yet).
 4. Add a crash animation.
 5. Planes flying across and above the clouds, periodically leaving a random chemtrail.
-6. Multiple drones and RC planes around the area; different drone types (octocopters). Keep simple. Race layout later.
+6. PARTIAL (2026-11-05: 6 craft - quad, octo, RC plane - on circuits, collision = crash; no race layout yet). Multiple drones and RC planes around the area; different drone types (octocopters). Keep simple. Race layout later.
 7. Plan (not build) a much smaller training/sports FPV track with obstacles to pass through or avoid.

@@ -20,6 +20,7 @@ import {
   turnTowards,
 } from './sim';
 import { characterOf } from './character';
+import { craftAt } from './craft';
 import { hasImpacted, surfaceAt } from './crash';
 import {
   drainRate,
@@ -1030,6 +1031,16 @@ describe('mission', () => {
     expect(after.mission.downBy).toBe('impact');
     const wrecked = until(after, (s) => hasImpacted(s.drone.crash));
     expect(wrecked.drone.pos[1]).toBeGreaterThanOrEqual(terrain.waterLevel - 1e-6);
+  });
+
+  it('crashes a flying drone that flies into another craft', () => {
+    const up = cruising(start);
+    const other = craftAt(up.config.seed, 0, up.time, terrain);
+    const collided = { ...up, drone: { ...up.drone, pos: other.pos } };
+    const after = tick(collided);
+    expect(after.mission.phase).toBe('lost');
+    expect(after.mission.downBy).toBe('impact');
+    expect(statusOf(after)).toBe('crashed');
   });
 
   it('reports the state of the flight for colour and badge', () => {
