@@ -7,6 +7,8 @@ export default defineConfig({
   build: { target: 'es2022' },
   test: {
     environment: 'node',
+    // Long simulation sweeps run several times slower on CI runners under coverage.
+    testTimeout: 60_000,
     include: ['src/**/*.test.ts'],
     coverage: {
       provider: 'v8',
