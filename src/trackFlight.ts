@@ -4,8 +4,10 @@ import type { Terrain } from './terrain';
 import { trackFor, type Gate, type Obstacle, type Track } from './track';
 import type { Config, Vec3 } from './types';
 
-/** Speed through the air on the track, m/s; slower than a sortie so a 24 m gate and tight corners are flyable. */
-export const TRACK_SPEED = 20;
+/** Speed through the air on the track, m/s (about 160 km/h): FPV racers are fast, and a quick course is the point. */
+export const TRACK_SPEED = 45;
+/** Fastest the drone turns on the track, radians per second: a racer corners harder than a survey drone, about a 19 m radius at speed. */
+export const TRACK_TURN_RATE = 2.4;
 /** Closest the airframe's footprint may come to the ground on the track, metres. */
 export const TRACK_FLOOR = 5;
 /** Height above the pad that a track takeoff climbs to before heading for the first gate. */
@@ -17,6 +19,10 @@ const TRACK_BUDGET = 0.7;
 
 /** Speed through the air for this mode. */
 export const speedFor = (cfg: Config): number => (cfg.mode === 'track' ? TRACK_SPEED : 36);
+
+/** Fastest turn for this mode, radians per second. */
+export const turnRateFor = (cfg: Config, sortieRate: number): number =>
+  cfg.mode === 'track' ? TRACK_TURN_RATE : sortieRate;
 
 /** The pad on a track: the start spot ahead of the first gate. */
 export const trackPad = (terrain: Terrain, seed: number): Vec3 => trackFor(terrain, seed).start;

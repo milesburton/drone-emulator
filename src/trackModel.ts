@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Arena } from './terrain';
 import { FENCE_HEIGHT } from './terrain';
-import type { Gate, Obstacle, Track } from './track';
+import type { Gate, Obstacle, SkyObstacle, Track } from './track';
 
 const trim = (hex: number): THREE.MeshLambertMaterial =>
   new THREE.MeshLambertMaterial({
@@ -134,6 +134,50 @@ export const buildObstacle = (o: Obstacle): THREE.Group => {
   return group;
 };
 
+/** A balloon (banded sphere with a basket) or a blimp (flattened hull with fins and a gondola), centred on its own origin. */
+export const buildSky = (o: SkyObstacle): THREE.Group => {
+  const group = new THREE.Group();
+  const r = o.radius;
+  if (o.kind === 'balloon') {
+    const envelope = new THREE.Mesh(
+      new THREE.SphereGeometry(r, 16, 12),
+      new THREE.MeshLambertMaterial({ color: 0xe8453c }),
+    );
+    const band = new THREE.Mesh(
+      new THREE.CylinderGeometry(r * 1.002, r * 1.002, r * 0.35, 16, 1, true),
+      new THREE.MeshLambertMaterial({ color: 0xf5f1e6, side: THREE.DoubleSide }),
+    );
+    const basket = new THREE.Mesh(
+      new THREE.BoxGeometry(r * 0.35, r * 0.25, r * 0.35),
+      new THREE.MeshLambertMaterial({ color: 0x6b4a2b }),
+    );
+    basket.position.y = -r * 1.25;
+    group.add(envelope, band, basket);
+  } else {
+    const hull = new THREE.Mesh(
+      new THREE.SphereGeometry(r, 18, 12),
+      new THREE.MeshLambertMaterial({ color: 0xc9ced6 }),
+    );
+    // The hull sits inside the collision sphere, so what you see is never softer than what you hit.
+    hull.scale.set(1, 0.5, 0.5);
+    const gondola = new THREE.Mesh(
+      new THREE.BoxGeometry(r * 0.7, r * 0.22, r * 0.25),
+      new THREE.MeshLambertMaterial({ color: 0x3a3f48 }),
+    );
+    gondola.position.y = -r * 0.62;
+    const fin = new THREE.Mesh(
+      new THREE.BoxGeometry(r * 0.5, r * 0.7, r * 0.05),
+      new THREE.MeshLambertMaterial({ color: 0xd8372f }),
+    );
+    fin.position.set(-r * 0.9, 0, 0);
+    const fin2 = fin.clone();
+    fin2.rotation.x = Math.PI / 2;
+    group.add(hull, gondola, fin, fin2);
+  }
+  group.position.set(...o.pos);
+  return group;
+};
+
 /** The whole track: every gate and obstacle, and a faint line through the gates in flying order. */
 /** A mesh fence round the arena: posts, rails and a faint netting, standing on the arena floor. */
 export const buildFence = (arena: Arena): THREE.Group => {
@@ -189,6 +233,7 @@ export const buildTrack = (
   if (arena) group.add(buildFence(arena));
   track.gates.forEach((g, i) => group.add(buildGate(g, groundAt(g.pos[0], g.pos[2]), i === 0)));
   track.obstacles.forEach((o) => group.add(buildObstacle(o)));
+  track.sky.forEach((o) => group.add(buildSky(o)));
   const loop = [...track.gates, track.gates[0]].map((g) => new THREE.Vector3(...g.pos));
   group.add(
     new THREE.Line(

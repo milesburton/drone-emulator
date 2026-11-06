@@ -27,6 +27,17 @@ export interface Obstacle {
   readonly height: number;
 }
 
+/** Something hanging in the air to fly past, over or under: a round balloon, or a blimp whose hull is flown round as a sphere. */
+export type SkyKind = 'balloon' | 'blimp';
+
+export interface SkyObstacle {
+  readonly kind: SkyKind;
+  /** Centre of the object, in the air. */
+  readonly pos: Vec3;
+  /** Collision radius, metres. */
+  readonly radius: number;
+}
+
 export interface Track {
   readonly centre: Vec3;
   /** Where the drone waits before the first gate, on the ground. */
@@ -36,6 +47,8 @@ export interface Track {
   /** In flying order; the lap closes from the last back to the first. */
   readonly gates: readonly Gate[];
   readonly obstacles: readonly Obstacle[];
+  /** Balloons and blimps floating near the line, each clear of every leg flown in all three dimensions. */
+  readonly sky: readonly SkyObstacle[];
 }
 
 /** Gate openings leave about 8 m clear either side of the 14 m airframe. */
@@ -89,6 +102,16 @@ const PAD_CHOICES: readonly (readonly [number, number])[] = [
 /** How far past the start/finish gate the drone flies before turning for the pad. */
 export const EXIT_RUN = 100;
 const OBSTACLES = 14;
+const SKY_OBJECTS = 9;
+const SKY_SPECS: Readonly<Record<SkyKind, { readonly radius: readonly [number, number] }>> = {
+  balloon: { radius: [5, 8] },
+  blimp: { radius: [10, 13] },
+};
+const SKY_KINDS = Object.keys(SKY_SPECS) as readonly SkyKind[];
+/** Height of a sky object's centre above the ground, metres. */
+const SKY_HEIGHT: readonly [number, number] = [18, 55];
+/** Room kept between a sky object and any flown leg, beyond the airframe, to allow for the autopilot's height error. */
+const SKY_MARGIN = 20;
 const ATTEMPTS = 60;
 const SALT = 0x1f83d9ab;
 
@@ -102,6 +125,20 @@ const seat = (terrain: Terrain, x: number, z: number, above = 0): Vec3 => [
     : terrain.heightAt(x, z)) + above,
   z,
 ];
+
+/** Distance from a point to the segment a..b in three dimensions. */
+const toLeg3 = (a: Vec3, b: Vec3, p: Vec3): number => {
+  const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+  const t =
+    len2 < 1e-9
+      ? 0
+      : Math.max(
+          0,
+          Math.min(1, ((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1] + (p[2] - a[2]) * d[2]) / len2),
+        );
+  return Math.hypot(p[0] - (a[0] + d[0] * t), p[1] - (a[1] + d[1] * t), p[2] - (a[2] + d[2] * t));
+};
 
 /** Distance from (px, pz) to the segment a..b. */
 const toLeg = (a: Vec2, b: Vec2, px: number, pz: number): number => {
@@ -237,12 +274,41 @@ export const generateTrack = (terrain: Terrain, centre: Vec3, seed: number): Tra
     .filter((o): o is Obstacle => o !== null)
     .slice(0, OBSTACLES);
 
+  // Sky objects: near the line, but clear of every flown leg (the loop, takeoff, exit and return) in 3D.
+  const legs3: readonly (readonly [Vec3, Vec3])[] = [
+    ...gates.map((g, i) => [g.pos, gates[(i + 1) % gates.length].pos] as const),
+    [startAt, first.pos],
+    [first.pos, exitPoint],
+    [exitPoint, startAt],
+  ];
+  const [skyRolls] = ranges((seed ^ SALT) + 211, SKY_OBJECTS * 6 * 5, 0, 1);
+  const sky = Array.from({ length: SKY_OBJECTS * 6 }, (_, k): SkyObstacle | null => {
+    const r = skyRolls.slice(k * 5, k * 5 + 5);
+    const kind = SKY_KINDS[Math.floor(r[2] * SKY_KINDS.length)];
+    const [lo, hi] = SKY_SPECS[kind].radius;
+    const radius = lerp([lo, hi], r[3]);
+    const reach = Math.sqrt(r[1]) * (ARENA_RADIUS - 40);
+    const x = centre[0] + Math.cos(r[0] * Math.PI * 2) * reach;
+    const z = centre[2] + Math.sin(r[0] * Math.PI * 2) * reach;
+    const y = Math.max(terrain.heightAt(x, z), terrain.waterLevel) + lerp(SKY_HEIGHT, r[4]);
+    const pos: Vec3 = [x, y, z];
+    const near = legs.some(([a, b]) => toLeg(a, b, x, z) < 70);
+    const clear = legs3.every(([a, b]) => toLeg3(a, b, pos) > radius + FOOTPRINT + SKY_MARGIN);
+    const gatesClear = gates.every(
+      (g) => Math.hypot(g.pos[0] - x, g.pos[1] - y, g.pos[2] - z) > g.width + radius + SKY_MARGIN,
+    );
+    return near && clear && gatesClear ? { kind, pos, radius } : null;
+  })
+    .filter((o): o is SkyObstacle => o !== null)
+    .slice(0, SKY_OBJECTS);
+
   return {
     centre,
     start: startAt,
     exit: exitPoint,
     gates,
     obstacles,
+    sky,
   };
 };
 

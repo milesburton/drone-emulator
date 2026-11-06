@@ -1,5 +1,5 @@
 import { FOOTPRINT } from './altitude';
-import type { Gate, Obstacle } from './track';
+import type { Gate, Obstacle, SkyObstacle } from './track';
 import type { Vec3 } from './types';
 
 /** Thickness of a gate's frame members, metres; matches the model. */
@@ -107,3 +107,7 @@ export const hitsGate = (gate: Gate, pos: Vec3): boolean => {
 export const hitsObstacle = (o: Obstacle, [x, y, z]: Vec3): boolean =>
   Math.hypot(x - o.pos[0], z - o.pos[2]) < o.radius + FOOTPRINT &&
   y - REACH_V < o.pos[1] + o.height;
+
+/** True when the airframe touches a floating balloon or blimp, flown round as a sphere. */
+export const hitsSky = (o: SkyObstacle, [x, y, z]: Vec3): boolean =>
+  Math.hypot(x - o.pos[0], y - o.pos[1], z - o.pos[2]) < o.radius + FOOTPRINT;

@@ -2,6 +2,7 @@ import { groundBeneath } from './altitude';
 import { describe, expect, it } from 'vitest';
 import { FOOTPRINT } from './altitude';
 import { defaultConfig } from './sim';
+import type { Vec3 } from './types';
 import { createTerrain } from './terrain';
 import {
   ARENA_RADIUS,
@@ -81,6 +82,38 @@ describe('track generator', () => {
         });
         expect(o.pos[1]).toBeGreaterThan(terrain.waterLevel);
         expect(o.pos[1]).toBeCloseTo(terrain.heightAt(o.pos[0], o.pos[2]), 6);
+      }),
+    );
+  });
+
+  it('floats sky objects above the ground and clear of every flown leg in three dimensions', () => {
+    expect(tracks.some((t) => t.sky.length > 0)).toBe(true);
+    tracks.forEach(({ gates, sky, start, exit }) =>
+      sky.forEach((o) => {
+        expect(o.pos[1] - o.radius).toBeGreaterThan(terrain.heightAt(o.pos[0], o.pos[2]) + 5);
+        const legs: readonly (readonly [Vec3, Vec3])[] = [
+          ...gates.map((g, i) => [g.pos, gates[(i + 1) % gates.length].pos] as const),
+          [start, gates[0].pos],
+          [gates[0].pos, exit],
+          [exit, start],
+        ];
+        legs.forEach(([a, b]) => {
+          const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+          const t = Math.max(
+            0,
+            Math.min(
+              1,
+              ((o.pos[0] - a[0]) * d[0] + (o.pos[1] - a[1]) * d[1] + (o.pos[2] - a[2]) * d[2]) /
+                (d[0] ** 2 + d[1] ** 2 + d[2] ** 2),
+            ),
+          );
+          const dist = Math.hypot(
+            o.pos[0] - (a[0] + d[0] * t),
+            o.pos[1] - (a[1] + d[1] * t),
+            o.pos[2] - (a[2] + d[2] * t),
+          );
+          expect(dist).toBeGreaterThan(o.radius + FOOTPRINT);
+        });
       }),
     );
   });

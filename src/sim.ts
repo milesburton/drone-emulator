@@ -28,12 +28,13 @@ import {
   steerClear,
   avoidables,
   speedFor,
+  turnRateFor,
   TRACK_TAKEOFF,
   trackPad,
   trackRoute,
 } from './trackFlight';
 import { trackFor } from './track';
-import { crossing, hitsGate, hitsObstacle, type GateResult } from './gates';
+import { crossing, hitsGate, hitsObstacle, hitsSky, type GateResult } from './gates';
 import { FOOTPRINT, groundBeneath } from './altitude';
 import { createTerrain, FENCE_HEIGHT, terrainKey, type Terrain } from './terrain';
 import type { Config, Crash, CrashCause, Mission, Snapshot, Vec2, Vec3 } from './types';
@@ -203,7 +204,7 @@ const fly = (s: Snapshot, terrain: Terrain, dt: number, target: Vec3): Motion =>
   const heading =
     distance < 1e-6
       ? s.drone.heading
-      : turnTowards(s.drone.heading, course - crab, MAX_TURN_RATE * dt);
+      : turnTowards(s.drone.heading, course - crab, turnRateFor(cfg, MAX_TURN_RATE) * dt);
   const air: Vec2 = [Math.cos(heading) * speed, Math.sin(heading) * speed];
   const nx = px + (air[0] + cfg.windX + gust[0]) * dt;
   const nz = pz + (air[1] + cfg.windZ + gust[1]) * dt;
@@ -489,6 +490,7 @@ const strikeCause = (
   if (aloft && s.config.mode === 'track') {
     const track = trackFor(terrain, s.config.seed);
     if (track.obstacles.some((o) => hitsObstacle(o, pos))) return 'obstacle';
+    if (track.sky.some((o) => hitsSky(o, pos))) return 'obstacle';
     if (track.gates.some((g) => hitsGate(g, pos))) return 'gate';
   }
   if (inAir && hasHitTerrain(pos, terrain)) {

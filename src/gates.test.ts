@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { crossing, hitsGate, hitsObstacle } from './gates';
+import { crossing, hitsGate, hitsObstacle, hitsSky } from './gates';
 import { createSnapshot, defaultConfig, step } from './sim';
 import { createTerrain } from './terrain';
 import { trackFor, type Gate, type GateKind, type Obstacle } from './track';
@@ -127,5 +127,15 @@ describe('on the track', () => {
     const done = Array.from({ length: 400 }).reduce<Snapshot>((acc) => step(acc, t, 0.05), clear);
     expect(done.mission.passed).toBeGreaterThan(0);
     expect(trackLine(done, t)).toContain(`${done.mission.passed} through`);
+  });
+});
+
+describe('hitsSky', () => {
+  const o = { kind: 'balloon' as const, pos: [0, 40, 0] as const, radius: 6 };
+  it('is a sphere: the airframe touches within radius plus footprint in any direction', () => {
+    expect(hitsSky(o, [12, 40, 0])).toBe(true);
+    expect(hitsSky(o, [0, 28, 0])).toBe(true);
+    expect(hitsSky(o, [14, 40, 0])).toBe(false);
+    expect(hitsSky(o, [0, 20, 0])).toBe(false);
   });
 });
