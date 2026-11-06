@@ -15,6 +15,7 @@ import {
   calmStorm,
   triggerStorm,
 } from './sim';
+import { decodeConfig, encodeConfig } from './shareLink';
 import { createTerrain } from './terrain';
 import type { Config, Mode } from './types';
 
@@ -28,10 +29,8 @@ const view = createView(byId<HTMLCanvasElement>('scene'));
 const paintCluster = createCluster(byId('cluster'));
 
 // The single owner of "current" state: the loop replaces these with new values.
-const initialConfig: Config = {
-  ...defaultConfig,
-  seed: parseSeed(window.location.hash.replace(/^#seed=/, '')) ?? defaultConfig.seed,
-};
+// The page's address carries the settings (see shareLink.ts), so a copied link opens the same map and mode.
+const initialConfig: Config = { ...defaultConfig, ...decodeConfig(window.location.hash) };
 const model = (() => {
   const terrain = createTerrain(initialConfig);
   return { terrain, snapshot: createSnapshot(initialConfig, terrain) };
@@ -46,7 +45,7 @@ const configure = (patch: Partial<Config>): void => {
 const bindSlider = (id: string, key: keyof Config): void => {
   const input = byId<HTMLInputElement>(id);
   const label = byId(`${id}-value`);
-  input.value = String(defaultConfig[key]);
+  input.value = String(initialConfig[key]);
   label.textContent = input.value;
   input.addEventListener('input', () => {
     label.textContent = input.value;
@@ -61,7 +60,7 @@ bindSlider('terrainScale', 'terrainScale');
 
 const bindToggle = (id: 'lakes' | 'river' | 'roads'): void => {
   const input = byId<HTMLInputElement>(id);
-  input.checked = defaultConfig[id];
+  input.checked = initialConfig[id];
   input.addEventListener('change', () => {
     configure({ [id]: input.checked });
     riverPath.disabled = !model.terrain.routes.river;
@@ -71,12 +70,19 @@ const bindToggle = (id: 'lakes' | 'river' | 'roads'): void => {
 const modeSelect = byId<HTMLSelectElement>('mode');
 modeSelect.add(new Option('Sortie', 'sortie'));
 modeSelect.add(new Option('FPV track', 'track'));
-modeSelect.value = defaultConfig.mode;
-modeSelect.addEventListener('change', () => configure({ mode: modeSelect.value as Mode }));
+modeSelect.add(new Option('Forest run', 'run'));
+modeSelect.value = initialConfig.mode;
+modeSelect.addEventListener('change', () => {
+  const mode = modeSelect.value as Mode;
+  // A forest run is run in the forest biome; the biome select follows.
+  configure(mode === 'run' ? { mode, biome: 'forest' } : { mode });
+  biomeSelect.value = model.snapshot.config.biome;
+  riverPath.disabled = !model.terrain.routes.river;
+});
 
 const biomeSelect = byId<HTMLSelectElement>('biome');
 BIOMES.forEach((b) => biomeSelect.add(new Option(profileOf(b).label, b)));
-biomeSelect.value = defaultConfig.biome;
+biomeSelect.value = initialConfig.biome;
 biomeSelect.addEventListener('change', () => {
   configure({ biome: biomeSelect.value as Biome });
   riverPath.disabled = !model.terrain.routes.river;
@@ -106,7 +112,6 @@ window.addEventListener('keydown', (e) => {
 const seedInput = byId<HTMLInputElement>('seed');
 const showSeed = (): void => {
   seedInput.value = String(model.snapshot.config.seed);
-  window.history.replaceState(null, '', `#seed=${model.snapshot.config.seed}`);
   riverPath.disabled = !model.terrain.routes.river;
 };
 const loadMap = (seed: number): void => {
@@ -145,10 +150,20 @@ view.resize();
 let lastPos: readonly [number, number] = [model.snapshot.drone.pos[0], model.snapshot.drone.pos[2]];
 let groundSpeed = 0;
 
+// Keep the address in step with the settings, writing only when it changes.
+let shown = '';
+const syncAddress = (): void => {
+  const next = `#${encodeConfig(model.snapshot.config, defaultConfig)}`;
+  if (next === shown) return;
+  shown = next;
+  window.history.replaceState(null, '', next);
+};
+
 const frame = (last: number) => (now: number) => {
   const dt = Math.min((now - last) / 1000, 0.05);
   model.snapshot = step(model.snapshot, model.terrain, dt);
   view.draw(model.snapshot, model.terrain);
+  syncAddress();
   stormBox.checked = model.snapshot.weather.phase === 'storm';
   const [px, , pz] = model.snapshot.drone.pos;
   const moved = Math.hypot(px - lastPos[0], pz - lastPos[1]) / Math.max(dt, 1e-3);

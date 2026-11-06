@@ -27,7 +27,6 @@ import {
   nextTrackAltitude,
   steerClear,
   avoidables,
-  dodge,
   speedFor,
   turnRateFor,
   TRACK_TAKEOFF,
@@ -35,6 +34,7 @@ import {
   trackRoute,
 } from './trackFlight';
 import { trackFor } from './track';
+import { animalAt, animalsFor, hitsAnimal } from './animals';
 import { near, nextRunAltitude, planCourse, runFor, strikes } from './forestRun';
 import { crossing, hitsGate, hitsObstacle, hitsSky, type GateResult } from './gates';
 import { FOOTPRINT, groundBeneath } from './altitude';
@@ -201,15 +201,12 @@ const fly = (s: Snapshot, terrain: Terrain, dt: number, target: Vec3): Motion =>
             toward,
             speed,
             [cfg.windX + gust[0], cfg.windZ + gust[1]],
+            animalsFor(terrain, cfg.seed),
+            s.time,
             around,
           )
         : toward;
-  // Sky objects and animals are dodged in height as well as sideways.
-  const dodged =
-    cfg.mode === 'track'
-      ? dodge(steered, s.drone.pos, speed, [], FOOTPRINT, distance)
-      : { course: steered, climb: 0 };
-  const course = dodged.course;
+  const course = steered;
   const crab =
     cfg.mode === 'track'
       ? Math.asin(
@@ -233,9 +230,9 @@ const fly = (s: Snapshot, terrain: Terrain, dt: number, target: Vec3): Motion =>
   const nz = pz + (air[1] + cfg.windZ + gust[1]) * dt;
   const ny =
     cfg.mode === 'track'
-      ? nextTrackAltitude(terrain, py, nx, nz, target[1] + dodged.climb, dt)
+      ? nextTrackAltitude(terrain, py, nx, nz, target[1], dt)
       : cfg.mode === 'run'
-        ? nextRunAltitude(terrain, py, nx, nz, heading, dodged.climb, dt)
+        ? nextRunAltitude(terrain, py, nx, nz, heading, dt)
         : nextAltitude(terrain, py, nx, nz, heading, dt);
   const pos: Vec3 = [nx, ny, nz];
   const through = cfg.mode === 'track' ? gateFlown(s, terrain, pos) : undefined;
@@ -534,6 +531,13 @@ const strikeCause = (
   if (aloft && s.config.mode === 'run' && strikes(runFor(terrain, s.config.seed), pos)) {
     return 'obstacle';
   }
+  if (
+    aloft &&
+    s.config.mode === 'run' &&
+    animalsFor(terrain, s.config.seed).some((a) => hitsAnimal(animalAt(terrain, a, s.time), pos))
+  ) {
+    return 'animal';
+  }
   if (inAir && hasHitTerrain(pos, terrain)) {
     return groundBeneath(terrain, pos[0], pos[2]) <= terrain.waterLevel ? 'water' : 'terrain';
   }
@@ -651,11 +655,17 @@ export const applyConfig = (
   const next = createTerrain(config);
   const home = padFor(config, next);
   const grounded = s.mission.phase === 'grounded';
+  // A run's goal depends on the terrain, so a new terrain means a new route.
+  const [fresh, rng] = config.mode === 'run' ? routeFor(config, next, s.rng, home) : [null, s.rng];
   return [
     {
       ...s,
       config,
-      waypoints: [seatWaypoint(next, home[0], home[2]), ...retarget(s.waypoints.slice(1), next)],
+      rng,
+      waypoints: fresh ?? [
+        seatWaypoint(next, home[0], home[2]),
+        ...retarget(s.waypoints.slice(1), next),
+      ],
       drone: grounded ? { ...s.drone, pos: home } : s.drone,
       mission: { ...s.mission, home },
     },

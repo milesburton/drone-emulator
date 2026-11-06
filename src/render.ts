@@ -5,6 +5,9 @@ import { buildBridges } from './bridgeModel';
 import { hasImpacted } from './crash';
 import { trackFor } from './track';
 import { buildTrack } from './trackModel';
+import { runFor } from './forestRun';
+import { animalsFor } from './animals';
+import { buildAnimals, buildRun, type AnimalsView } from './runModel';
 import { buildCraftFx } from './craftFx';
 import { buildCrashFx } from './crashFx';
 import { buildDrone } from './droneModel';
@@ -350,6 +353,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
 
   const trackGroup = new THREE.Group();
   scene.add(trackGroup);
+  const runGroup = new THREE.Group();
+  scene.add(runGroup);
 
   const cache = {
     terrain: null as Terrain | null,
@@ -362,6 +367,9 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     home: null as Vec3 | null,
     forestTerrain: null as Terrain | null,
     forestHome: null as Vec3 | null,
+    animals: null as AnimalsView | null,
+    runKey: null as string | null,
+    runTerrain: null as Terrain | null,
     trackKey: null as string | null,
     trackTerrain: null as Terrain | null,
     droneAt: new THREE.Vector3(),
@@ -444,12 +452,33 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   };
 
   /** The FPV track, drawn only in track mode and rebuilt when the map or seed changes. */
+  const running = (s: Snapshot): boolean => s.config.mode === 'run';
+
   const syncTrack = (s: Snapshot, terrain: Terrain): void => {
     const on = s.config.mode === 'track';
+    const running = s.config.mode === 'run';
     trackGroup.visible = on;
-    // The sortie route and its flags have no place on a track.
-    markers.visible = !on;
-    pathLine.visible = !on;
+    runGroup.visible = running;
+    // The sortie route and its flags have no place on a track or a run, and the scenery trees would clip the giant ones.
+    markers.visible = !on && !running;
+    pathLine.visible = !on && !running;
+    forest.visible = !running;
+    const runKey = running ? `${s.config.seed}` : null;
+    if (runKey !== cache.runKey || terrain !== cache.runTerrain) {
+      runGroup.children.slice().forEach((m) => {
+        runGroup.remove(m);
+        disposeObject(m);
+      });
+      if (running) {
+        runGroup.add(buildRun(runFor(terrain, s.config.seed)));
+        cache.animals = buildAnimals(animalsFor(terrain, s.config.seed));
+        runGroup.add(cache.animals.group);
+      } else {
+        cache.animals = null;
+      }
+      cache.runKey = runKey;
+      cache.runTerrain = terrain;
+    }
     const key = on ? `${s.config.seed}` : null;
     if (key === cache.trackKey && terrain === cache.trackTerrain) return;
     trackGroup.children.slice().forEach((m) => {
@@ -547,6 +576,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     syncPad(s.mission.home);
     syncForest(terrain, s.mission.home);
     syncTrack(s, terrain);
+    if (running(s)) cache.animals?.update(terrain, s.time);
     if (cache.fleet) {
       // A restart rewinds the clock; start the traffic over rather than running it backwards.
       const base = cache.fleet.time > s.time ? createFleet(terrain, cache.drivers) : cache.fleet;
@@ -608,9 +638,18 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     const dt = Math.min((now - look.last) / 1000, 0.1);
     look.last = now;
     // Free look is noclip: the camera is detached from the drone, so wind and flight never move it.
-    if (look.overview && s.config.mode === 'track') {
-      const [cx, cy, cz] = trackFor(terrain, s.config.seed).centre;
-      camera.position.set(cx, cy + OVERVIEW_HEIGHT, cz + OVERVIEW_HEIGHT * 0.45);
+    if (look.overview && (s.config.mode === 'track' || s.config.mode === 'run')) {
+      // A run is seen from over the middle of the line from pad to goal, higher up to take in all of it.
+      const run = s.config.mode === 'run' ? runFor(terrain, s.config.seed) : null;
+      const [cx, cy, cz] = run
+        ? [
+            (run.start[0] + run.goal[0]) / 2,
+            (run.start[1] + run.goal[1]) / 2,
+            (run.start[2] + run.goal[2]) / 2,
+          ]
+        : trackFor(terrain, s.config.seed).centre;
+      const height = run ? OVERVIEW_HEIGHT * 1.9 : OVERVIEW_HEIGHT;
+      camera.position.set(cx, cy + height, cz + height * 0.45);
       camera.lookAt(cx, cy, cz);
     } else if (!look.free) {
       if (look.framed) camera.position.add(cache.droneAt.clone().sub(previous));

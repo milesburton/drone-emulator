@@ -1,4 +1,5 @@
 import { FOOTPRINT, groundBeneath } from './altitude';
+import { animalAt, type Animal } from './animals';
 import { toSegment3 } from './gates';
 import { toRandomFn } from './rng';
 import type { Terrain } from './terrain';
@@ -267,8 +268,8 @@ const RUN_RESPONSE = 3;
 const GROUND_LOOK = 50;
 
 /**
- * Eases altitude towards `RUN_ALT` above the highest ground under and ahead of the airframe, plus a
- * dodge `climb`, keeping to the band between the floor and the ceiling above the ground here.
+ * Eases altitude towards `RUN_ALT` above the highest ground under and ahead of the airframe,
+ * keeping to the band between the floor and the ceiling above the ground here.
  */
 export const nextRunAltitude = (
   terrain: Terrain,
@@ -276,12 +277,11 @@ export const nextRunAltitude = (
   x: number,
   z: number,
   heading: number,
-  climb: number,
   dt: number,
 ): number => {
   const here = Math.max(groundBeneath(terrain, x, z), terrain.waterLevel);
   const ahead = Math.max(here, groundAhead(terrain, x, z, heading, GROUND_LOOK));
-  const wanted = Math.min(ahead + RUN_ALT + climb, here + RUN_CEILING);
+  const wanted = Math.min(ahead + RUN_ALT, here + RUN_CEILING);
   const step = (wanted - y) * Math.min(1, dt * RUN_RESPONSE);
   const eased = y + Math.max(-RUN_DESCENT * dt, Math.min(RUN_CLIMB * dt, step));
   return Math.max(eased, here + RUN_FLOOR);
@@ -315,6 +315,8 @@ const clearanceAlong = (
   length: number,
   trees: readonly RunTree[],
   limbs: readonly Branch[],
+  critters: readonly (readonly Vec3[])[],
+  radii: readonly number[],
 ): number => {
   const steps = Math.ceil(length / PLAN_STEP);
   const stepTurn = (RUN_TURN_RATE * PLAN_STEP) / speed;
@@ -343,7 +345,13 @@ const clearanceAlong = (
         (m, b) => Math.min(m, toSegment3(b.from, b.to, p) - b.radius - FOOTPRINT),
         PLAN_CAP,
       );
-      return { x, z, h, worst: Math.min(st.worst, trunk, limb) };
+      // An animal is where its path puts it by the time the drone gets there.
+      const animal = (critters[i] ?? []).reduce(
+        (m, at, k) =>
+          Math.min(m, Math.hypot(p[0] - at[0], p[1] - at[1], p[2] - at[2]) - radii[k] - FOOTPRINT),
+        PLAN_CAP,
+      );
+      return { x, z, h, worst: Math.min(st.worst, trunk, limb, animal) };
     },
     { x: pos[0], z: pos[2], h: heading, worst: PLAN_CAP },
   ).worst;
@@ -360,6 +368,8 @@ export const planCourse = (
   goalBearing: number,
   speed: number,
   wind: readonly [number, number],
+  critters: readonly Animal[],
+  time: number,
   around: { readonly trees: readonly RunTree[]; readonly branches: readonly Branch[] },
 ): number => {
   const length = speed * PLAN_LOOK;
@@ -370,12 +380,35 @@ export const planCourse = (
   const limbs = around.branches.filter(
     (b) => Math.hypot(b.from[0] - pos[0], b.from[2] - pos[2]) < length + 30,
   );
+  // Only animals that could be within reach of the drone's paths in the next couple of seconds matter.
+  const nearby = critters.filter((a) => {
+    const now = animalAt(terrain, a, time).pos;
+    return Math.hypot(now[0] - pos[0], now[2] - pos[2]) < length + a.speed * PLAN_LOOK + 20;
+  });
+  // Where each of those animals will be at each step of the look-ahead; the same for every candidate path.
+  const steps = Math.ceil(length / PLAN_STEP);
+  const ahead = Array.from({ length: steps }, (_, i) =>
+    nearby.map((a) => animalAt(terrain, a, time + ((i + 1) * PLAN_STEP) / speed).pos),
+  );
+  const radii = nearby.map((a) => a.radius);
   const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
   const candidates = Array.from({ length: 2 * PLAN_FAN + 1 }, (_, k) => {
     const theta = goalBearing + (k - PLAN_FAN) * PLAN_SPACING;
     return {
       theta,
-      clearance: clearanceAlong(terrain, pos, heading, theta, speed, wind, length, trees, limbs),
+      clearance: clearanceAlong(
+        terrain,
+        pos,
+        heading,
+        theta,
+        speed,
+        wind,
+        length,
+        trees,
+        limbs,
+        ahead,
+        radii,
+      ),
       cost: Math.abs(wrap(theta - goalBearing)) + PLAN_TURN_COST * Math.abs(wrap(theta - heading)),
     };
   });

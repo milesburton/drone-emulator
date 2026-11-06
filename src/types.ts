@@ -70,7 +70,8 @@ export type Phase = 'grounded' | 'takeoff' | 'cruise' | 'returning' | 'landing' 
 
 /** How the last flight ended. */
 /** What brought a drone down. */
-export type CrashCause = 'terrain' | 'water' | 'craft' | 'gate' | 'obstacle' | 'fence' | 'power';
+export type CrashCause =
+  'terrain' | 'water' | 'craft' | 'gate' | 'obstacle' | 'fence' | 'animal' | 'power';
 
 export type Outcome = 'success' | 'failed' | 'lost' | 'crashed';
 

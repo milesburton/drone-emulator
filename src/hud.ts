@@ -1,3 +1,4 @@
+import { runFor } from './forestRun';
 import { trackFor } from './track';
 import { gateAt } from './trackFlight';
 import { pressureOf, windBiasOf } from './ekf';
@@ -54,6 +55,18 @@ export const trackLine = (s: Snapshot, terrain: Terrain): string => {
   return `${at === null ? 'pad' : `gate ${at.gate + 1}/${n}`} · ${m.laps} laps · ${m.passed} through, ${m.missed} missed${best}`;
 };
 
+/** Run progress: distance to the goal (or to the pad on the way back), runs completed and the best time. */
+export const runLine = (s: Snapshot, terrain: Terrain): string => {
+  const run = runFor(terrain, s.config.seed);
+  const [x, , z] = s.drone.pos;
+  const out = s.drone.wp === 1;
+  const target = out ? run.goal : run.start;
+  const m = s.mission;
+  const best = m.bestLap === null ? '' : ` · best ${m.bestLap.toFixed(1)} s`;
+  const last = m.lastLap === null ? '' : ` · last ${m.lastLap.toFixed(1)} s`;
+  return `${out ? 'to goal' : 'home'} ${Math.hypot(target[0] - x, target[2] - z).toFixed(0)} m · ${m.laps} runs${last}${best}`;
+};
+
 /** Everything the instrument cluster shows, as plain numbers and strings. Altitude is above the ground. */
 export const readouts = (s: Snapshot, terrain: Terrain, groundSpeed: number): Readouts => {
   const [x, y, z] = s.drone.pos;
@@ -88,7 +101,11 @@ export const readouts = (s: Snapshot, terrain: Terrain, groundSpeed: number): Re
     },
     phase: `${m.phase}${retry}`,
     waypoint:
-      s.config.mode === 'track' ? trackLine(s, terrain) : `${s.drone.wp + 1}/${s.waypoints.length}`,
+      s.config.mode === 'track'
+        ? trackLine(s, terrain)
+        : s.config.mode === 'run'
+          ? runLine(s, terrain)
+          : `${s.drone.wp + 1}/${s.waypoints.length}`,
     trip: `${m.trip.toFixed(0)} m (total ${m.totalTrip.toFixed(0)} m)`,
     flights: `${m.successes} ok, ${m.failures} failed, ${m.crashed} crashed (${m.lost} after power loss)${why}${m.crashCause ? `, last crash: ${m.crashCause}` : ''}`,
     weather: `${s.weather.phase}, rain ${(s.weather.rain * 100).toFixed(0)}%`,
