@@ -27,6 +27,7 @@ import {
   nextTrackAltitude,
   steerClear,
   avoidables,
+  dodge,
   speedFor,
   turnRateFor,
   TRACK_TAKEOFF,
@@ -34,6 +35,7 @@ import {
   trackRoute,
 } from './trackFlight';
 import { trackFor } from './track';
+import { near, nextRunAltitude, planCourse, runFor, strikes } from './forestRun';
 import { crossing, hitsGate, hitsObstacle, hitsSky, type GateResult } from './gates';
 import { FOOTPRINT, groundBeneath } from './altitude';
 import { createTerrain, FENCE_HEIGHT, terrainKey, type Terrain } from './terrain';
@@ -93,7 +95,9 @@ const routeFor = (
 ): readonly [readonly Vec3[], number] =>
   cfg.mode === 'track'
     ? [trackRoute(terrain, cfg.seed), rng]
-    : planRoute(cfg, terrain, rng, home, AIR_SPEED);
+    : cfg.mode === 'run'
+      ? [[home, runFor(terrain, cfg.seed).goal], rng]
+      : planRoute(cfg, terrain, rng, home, AIR_SPEED);
 
 const startEkf = (pos: Vec3) =>
   initEkf([pos[0], pos[2], 0, 0, pressureAt(pos[1])], [25, 25, 100, 100, 1]);
@@ -178,15 +182,34 @@ const fly = (s: Snapshot, terrain: Terrain, dt: number, target: Vec3): Motion =>
   const speed = speedFor(cfg);
   const gust = gustAt(s.time, s.weather.rain);
   // On a track the autopilot points into the wind by the crab angle that holds its line (it is told the wind).
-  const course =
+  // On a forest run the trunks and limbs around the drone are what it steers through.
+  const around = cfg.mode === 'run' ? near(runFor(terrain, cfg.seed), px, pz, speed * 2.2) : null;
+  const toward = Math.atan2(dz, dx);
+  const steered =
     cfg.mode === 'track'
       ? steerClear(
-          Math.atan2(dz, dx),
+          toward,
           s.drone.pos,
           avoidables(trackFor(terrain, cfg.seed), gateIndex(s, terrain)),
           FOOTPRINT,
         )
-      : Math.atan2(dz, dx);
+      : around
+        ? planCourse(
+            terrain,
+            s.drone.pos,
+            s.drone.heading,
+            toward,
+            speed,
+            [cfg.windX + gust[0], cfg.windZ + gust[1]],
+            around,
+          )
+        : toward;
+  // Sky objects and animals are dodged in height as well as sideways.
+  const dodged =
+    cfg.mode === 'track'
+      ? dodge(steered, s.drone.pos, speed, [], FOOTPRINT, distance)
+      : { course: steered, climb: 0 };
+  const course = dodged.course;
   const crab =
     cfg.mode === 'track'
       ? Math.asin(
@@ -210,8 +233,10 @@ const fly = (s: Snapshot, terrain: Terrain, dt: number, target: Vec3): Motion =>
   const nz = pz + (air[1] + cfg.windZ + gust[1]) * dt;
   const ny =
     cfg.mode === 'track'
-      ? nextTrackAltitude(terrain, py, nx, nz, target[1], dt)
-      : nextAltitude(terrain, py, nx, nz, heading, dt);
+      ? nextTrackAltitude(terrain, py, nx, nz, target[1] + dodged.climb, dt)
+      : cfg.mode === 'run'
+        ? nextRunAltitude(terrain, py, nx, nz, heading, dodged.climb, dt)
+        : nextAltitude(terrain, py, nx, nz, heading, dt);
   const pos: Vec3 = [nx, ny, nz];
   const through = cfg.mode === 'track' ? gateFlown(s, terrain, pos) : undefined;
   return {
@@ -397,6 +422,17 @@ const tally = (m: Mission, gate: GateResult | undefined): Mission =>
  */
 const timeLap = (s: Snapshot, terrain: Terrain): Mission => {
   const m = s.mission;
+  if (s.config.mode === 'run') {
+    // Reaching the goal (the first waypoint) closes a run, timed from take-off.
+    if (s.drone.wp !== 1 || m.lapStart === null) return m;
+    const time = s.time - m.lapStart;
+    return {
+      ...m,
+      laps: m.laps + 1,
+      lastLap: time,
+      bestLap: m.bestLap === null ? time : Math.min(m.bestLap, time),
+    };
+  }
   if (s.config.mode !== 'track') return m;
   const here = gateAt(
     s.drone.wp,
@@ -431,7 +467,9 @@ const transition = (s: Snapshot, motion: Motion, terrain: Terrain): Snapshot => 
     case 'grounded':
       return m.groundLeft <= 0 ? goTo('takeoff', { trip: 0, outcome: null }) : s;
     case 'takeoff':
-      return motion.arrived ? goTo('cruise') : s;
+      return motion.arrived
+        ? goTo('cruise', s.config.mode === 'run' ? { lapStart: s.time } : {})
+        : s;
     case 'cruise': {
       if (wp === 0 && motion.arrived) return goTo('landing');
       if (isLost(m.battery, s.drone.pos, m.home, s.waypoints[wp], wind, s.weather.rain, speed)) {
@@ -492,6 +530,9 @@ const strikeCause = (
     if (track.obstacles.some((o) => hitsObstacle(o, pos))) return 'obstacle';
     if (track.sky.some((o) => hitsSky(o, pos))) return 'obstacle';
     if (track.gates.some((g) => hitsGate(g, pos))) return 'gate';
+  }
+  if (aloft && s.config.mode === 'run' && strikes(runFor(terrain, s.config.seed), pos)) {
+    return 'obstacle';
   }
   if (inAir && hasHitTerrain(pos, terrain)) {
     return groundBeneath(terrain, pos[0], pos[2]) <= terrain.waterLevel ? 'water' : 'terrain';

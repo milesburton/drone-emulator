@@ -1,9 +1,9 @@
 import { characterOf, type MapCharacter } from './character';
 import type { Config } from './types';
 
-export type Biome = 'valley' | 'desert' | 'mountain';
+export type Biome = 'valley' | 'desert' | 'mountain' | 'forest';
 
-export const BIOMES: readonly Biome[] = ['valley', 'desert', 'mountain'];
+export const BIOMES: readonly Biome[] = ['valley', 'desert', 'mountain', 'forest'];
 
 type Rgb = readonly [number, number, number];
 
@@ -82,7 +82,27 @@ const mountain: BiomeProfile = {
   }),
 };
 
-const PROFILES: Readonly<Record<Biome, BiomeProfile>> = { valley, desert, mountain };
+/** Rolling, wooded country under a dark canopy: soil and moss rather than grass, trees almost shoulder to shoulder. */
+const forest: BiomeProfile = {
+  label: 'Forest',
+  palette: {
+    shore: [0.36, 0.3, 0.2],
+    low: [0.12, 0.3, 0.1],
+    high: [0.16, 0.34, 0.12],
+    rock: [0.34, 0.32, 0.28],
+    peak: [0.55, 0.58, 0.5],
+    bands: [0.03, 0.15, 0.62, 0.85],
+  },
+  treeDensity: 1.9,
+  shape: (c) => ({
+    ...c,
+    hillFrequency: c.hillFrequency * 1.1,
+    relief: c.relief * 0.7,
+    lakeWidth: c.lakeWidth * 0.6,
+  }),
+};
+
+const PROFILES: Readonly<Record<Biome, BiomeProfile>> = { valley, desert, mountain, forest };
 
 export const profileOf = (biome: Biome): BiomeProfile => PROFILES[biome];
 

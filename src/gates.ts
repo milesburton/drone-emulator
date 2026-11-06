@@ -1,4 +1,5 @@
 import { FOOTPRINT } from './altitude';
+import type { Branch } from './forestRun';
 import type { Gate, Obstacle, SkyObstacle } from './track';
 import type { Vec3 } from './types';
 
@@ -111,3 +112,21 @@ export const hitsObstacle = (o: Obstacle, [x, y, z]: Vec3): boolean =>
 /** True when the airframe touches a floating balloon or blimp, flown round as a sphere. */
 export const hitsSky = (o: SkyObstacle, [x, y, z]: Vec3): boolean =>
   Math.hypot(x - o.pos[0], y - o.pos[1], z - o.pos[2]) < o.radius + FOOTPRINT;
+
+/** Distance from `p` to the segment a..b in three dimensions. */
+export const toSegment3 = (a: Vec3, b: Vec3, p: Vec3): number => {
+  const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+  const t =
+    len2 < 1e-9
+      ? 0
+      : Math.max(
+          0,
+          Math.min(1, ((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1] + (p[2] - a[2]) * d[2]) / len2),
+        );
+  return Math.hypot(p[0] - (a[0] + d[0] * t), p[1] - (a[1] + d[1] * t), p[2] - (a[2] + d[2] * t));
+};
+
+/** True when the airframe touches a limb: within its radius plus the footprint of the nearest point on the limb. */
+export const hitsBranch = (b: Branch, pos: Vec3): boolean =>
+  toSegment3(b.from, b.to, pos) < b.radius + FOOTPRINT;

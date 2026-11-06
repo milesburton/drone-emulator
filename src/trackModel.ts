@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Arena } from './terrain';
 import { FENCE_HEIGHT } from './terrain';
+import type { Branch } from './forestRun';
 import type { Gate, Obstacle, SkyObstacle, Track } from './track';
 
 const trim = (hex: number): THREE.MeshLambertMaterial =>
@@ -175,6 +176,27 @@ export const buildSky = (o: SkyObstacle): THREE.Group => {
     group.add(hull, gondola, fin, fin2);
   }
   group.position.set(...o.pos);
+  return group;
+};
+
+/** A limb: a bark-brown cylinder from the trunk to its tip, with a tuft of leaves at the end. In world coordinates. */
+export const buildBranch = (b: Branch): THREE.Group => {
+  const group = new THREE.Group();
+  const from = new THREE.Vector3(...b.from);
+  const to = new THREE.Vector3(...b.to);
+  const length = from.distanceTo(to);
+  const limb = new THREE.Mesh(
+    new THREE.CylinderGeometry(b.radius * 0.5, b.radius, length, 6),
+    new THREE.MeshLambertMaterial({ color: 0x5a3d26 }),
+  );
+  limb.position.copy(from).lerp(to, 0.5);
+  limb.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.clone().sub(from).normalize());
+  const tuft = new THREE.Mesh(
+    new THREE.SphereGeometry(b.radius * 3, 8, 6),
+    new THREE.MeshLambertMaterial({ color: 0x2c6b34 }),
+  );
+  tuft.position.copy(to);
+  group.add(limb, tuft);
   return group;
 };
 

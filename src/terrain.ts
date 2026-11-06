@@ -199,8 +199,8 @@ const alongOf = (road: Route, x: number, z: number): number => (road.along === '
 export const createTerrain = (cfg: Config): Terrain => {
   const hills = createNoise2D(toRandomFn(cfg.seed));
   const lakeNoise = createNoise2D(toRandomFn(cfg.seed ^ 0x9e3779b9));
-  // An arena has no room for roads or a river, so a track map is built without them.
-  const routes = createRoutes(cfg.mode === 'track' ? { ...cfg, roads: false, river: false } : cfg);
+  // An arena has no room for roads or a river, and a forest run is trees only, so those maps are built without them.
+  const routes = createRoutes(cfg.mode === 'sortie' ? cfg : { ...cfg, roads: false, river: false });
   const character = characterFor(cfg);
   const relief = cfg.terrainScale * character.relief;
   const channelHalfWidth = character.riverHalfWidth;
