@@ -57,6 +57,7 @@ Go with A. Also add a mode-specific speed (about 20 m/s) so corners are flyable 
 
 ## Progress
 
+- Phase 2 done 2026-11-06: `trackModel.ts` (gates, pylons, poles, flags, trees, ghost line), Mode selector in the panel, `O` = overview camera (track mode). In track mode the sortie route and flags are hidden; the drone still flies sortie legs until phase 3. Gates read small from 420 m; check closer up when phase 3 flies them.
 - Phase 1 done 2026-11-05: `track.ts` (generator, arena search), `Config.mode`, 7 tests. ADR: homelab-docs `adr-drone-emulator-fpv-track`.
   Decisions taken: option A (current drone), autopilot only, mode toggle.
 

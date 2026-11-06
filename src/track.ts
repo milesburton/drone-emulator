@@ -195,6 +195,19 @@ export const generateTrack = (terrain: Terrain, centre: Vec3, seed: number): Tra
   };
 };
 
+const tracks = new WeakMap<Terrain, Map<number, Track>>();
+
+/** The track for this terrain and seed, built once and reused. */
+export const trackFor = (terrain: Terrain, seed: number): Track => {
+  const byTerrain = tracks.get(terrain) ?? new Map<number, Track>();
+  tracks.set(terrain, byTerrain);
+  const known = byTerrain.get(seed);
+  if (known) return known;
+  const built = generateTrack(terrain, findArena(terrain, seed), seed);
+  byTerrain.set(seed, built);
+  return built;
+};
+
 /** Ground the arena must be: this flat across its radius, in metres of relief, strictest first. */
 const ARENA_RELIEF: readonly number[] = [15, 30, 60];
 const ARENA_PROBES = 24;

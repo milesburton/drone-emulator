@@ -195,6 +195,8 @@
       <input id="windZ" type="range" min="-20" max="20" step="1" />
       <label for="terrainScale">Terrain scale <span id="terrainScale-value"></span> m</label>
       <input id="terrainScale" type="range" min="10" max="150" step="5" />
+      <label for="mode">Mode</label>
+      <select id="mode"></select>
       <label for="biome">Biome</label>
       <select id="biome"></select>
       <label><input id="lakes" type="checkbox" /> Lakes</label>
@@ -210,8 +212,8 @@
       <button id="river-path" type="button">River Path</button>
       <div class="legend">
         Drone colour = state (blue on course, orange off course, purple returning, green success,
-        red lost or crashed), numbered magenta flags = waypoints, chequered flag = finish (the pad), faint
-        streaks = wind. Drag to orbit. Hold Shift to look around and fly with W A S D (E up, F
+        red lost or crashed), numbered magenta flags = waypoints, chequered flag = finish (the pad),
+        faint streaks = wind. Drag to orbit. Hold Shift to look around and fly with W A S D (E up, F
         down); release to return to the drone.
       </div>
     </div>

@@ -3,6 +3,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { flightLine } from './altitude';
 import { buildBridges } from './bridgeModel';
 import { hasImpacted } from './crash';
+import { trackFor } from './track';
+import { buildTrack } from './trackModel';
 import { buildCraftFx } from './craftFx';
 import { buildCrashFx } from './crashFx';
 import { buildDrone } from './droneModel';
@@ -37,6 +39,8 @@ export interface View {
   readonly resize: () => void;
   /** Free look: drag turns the camera in place and WASD flies it; turning it off returns to the drone. */
   readonly setFreeLook: (on: boolean) => void;
+  /** Track mode only: a camera high above the track looking down on it; off returns to the drone. */
+  readonly setOverview: (on: boolean) => void;
 }
 
 const RAIN_COUNT = 1800;
@@ -58,6 +62,8 @@ const MOVE_KEYS: Readonly<Record<string, readonly [number, number]>> = {
 /** Noclip vertical flight: E rises, F lowers (neither is reserved by Chrome or Firefox). */
 const RISE_KEYS: Readonly<Record<string, number>> = { KeyE: 1, KeyF: -1 };
 const isFlyKey = (code: string): boolean => code in MOVE_KEYS || code in RISE_KEYS;
+/** Height of the track-overview camera above the arena, metres. */
+const OVERVIEW_HEIGHT = 420;
 const FOG_NEAR = 600;
 const FOG_FAR = 4200;
 const TINT_RATE = 3;
@@ -218,10 +224,15 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   controls.maxPolarAngle = Math.PI * 0.49;
   controls.minDistance = 10;
 
-  const look = { free: false, framed: false, yaw: 0, pitch: 0, last: 0 };
+  const look = { free: false, overview: false, framed: false, yaw: 0, pitch: 0, last: 0 };
   const held = new Set<string>();
   const aim = (): void => {
     camera.quaternion.setFromEuler(new THREE.Euler(look.pitch, look.yaw, 0, 'YXZ'));
+  };
+  const setOverview = (on: boolean): void => {
+    look.overview = on;
+    controls.enabled = !on && !look.free;
+    if (!on) look.framed = false;
   };
   const setFreeLook = (on: boolean): void => {
     if (on === look.free) return;
@@ -337,6 +348,9 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   const traffic = new THREE.Group();
   scene.add(traffic);
 
+  const trackGroup = new THREE.Group();
+  scene.add(trackGroup);
+
   const cache = {
     terrain: null as Terrain | null,
     drivers: [] as readonly Driver[],
@@ -348,6 +362,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     home: null as Vec3 | null,
     forestTerrain: null as Terrain | null,
     forestHome: null as Vec3 | null,
+    trackKey: null as string | null,
+    trackTerrain: null as Terrain | null,
     droneAt: new THREE.Vector3(),
     time: 0,
   };
@@ -425,6 +441,26 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     forest.add(...buildForest(placeTrees(terrain, home)).children);
     cache.forestTerrain = terrain;
     cache.forestHome = home;
+  };
+
+  /** The FPV track, drawn only in track mode and rebuilt when the map or seed changes. */
+  const syncTrack = (s: Snapshot, terrain: Terrain): void => {
+    const on = s.config.mode === 'track';
+    trackGroup.visible = on;
+    // The sortie route and its flags have no place on a track.
+    markers.visible = !on;
+    pathLine.visible = !on;
+    const key = on ? `${s.config.seed}` : null;
+    if (key === cache.trackKey && terrain === cache.trackTerrain) return;
+    trackGroup.children.slice().forEach((m) => {
+      trackGroup.remove(m);
+      disposeObject(m);
+    });
+    if (on) {
+      trackGroup.add(buildTrack(trackFor(terrain, s.config.seed), terrain.heightAt));
+    }
+    cache.trackKey = key;
+    cache.trackTerrain = terrain;
   };
 
   const syncRain = (s: Snapshot, terrain: Terrain): void => {
@@ -510,6 +546,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     syncWaypoints(s.waypoints, terrain);
     syncPad(s.mission.home);
     syncForest(terrain, s.mission.home);
+    syncTrack(s, terrain);
     if (cache.fleet) {
       // A restart rewinds the clock; start the traffic over rather than running it backwards.
       const base = cache.fleet.time > s.time ? createFleet(terrain, cache.drivers) : cache.fleet;
@@ -529,6 +566,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     s.weather.clouds.forEach((c, i) => {
       clouds[i].position.set(c.x, c.y, c.z);
       clouds[i].scale.setScalar(c.radius);
+      // Cloud would hide the track from above.
+      clouds[i].visible = !look.overview;
     });
     const [x, y, z] = s.drone.pos;
     const previous = cache.droneAt.clone();
@@ -569,7 +608,11 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     const dt = Math.min((now - look.last) / 1000, 0.1);
     look.last = now;
     // Free look is noclip: the camera is detached from the drone, so wind and flight never move it.
-    if (!look.free) {
+    if (look.overview && s.config.mode === 'track') {
+      const [cx, cy, cz] = trackFor(terrain, s.config.seed).centre;
+      camera.position.set(cx, cy + OVERVIEW_HEIGHT, cz + OVERVIEW_HEIGHT * 0.45);
+      camera.lookAt(cx, cy, cz);
+    } else if (!look.free) {
       if (look.framed) camera.position.add(cache.droneAt.clone().sub(previous));
       else camera.position.copy(cache.droneAt).add(CAMERA_OFFSET);
       look.framed = true;
@@ -583,7 +626,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
       camera.position.z += (z * Math.cos(look.yaw) - x * Math.sin(look.yaw)) * step;
     });
     controls.target.copy(cache.droneAt);
-    if (!look.free) controls.update();
+    if (!look.free && !look.overview) controls.update();
     syncRain(s, terrain);
     syncWind(s, terrain);
     syncLightning(s, terrain);
@@ -597,5 +640,5 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     camera.updateProjectionMatrix();
   };
 
-  return { draw, resize, setFreeLook };
+  return { draw, resize, setFreeLook, setOverview };
 };

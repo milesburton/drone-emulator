@@ -16,7 +16,7 @@ import {
   triggerStorm,
 } from './sim';
 import { createTerrain } from './terrain';
-import type { Config } from './types';
+import type { Config, Mode } from './types';
 
 const byId = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -68,6 +68,12 @@ const bindToggle = (id: 'lakes' | 'river' | 'roads'): void => {
   });
 };
 
+const modeSelect = byId<HTMLSelectElement>('mode');
+modeSelect.add(new Option('Sortie', 'sortie'));
+modeSelect.add(new Option('FPV track', 'track'));
+modeSelect.value = defaultConfig.mode;
+modeSelect.addEventListener('change', () => configure({ mode: modeSelect.value as Mode }));
+
 const biomeSelect = byId<HTMLSelectElement>('biome');
 BIOMES.forEach((b) => biomeSelect.add(new Option(profileOf(b).label, b)));
 biomeSelect.value = defaultConfig.biome;
@@ -88,6 +94,14 @@ window.addEventListener('keyup', (e) => {
   if (e.key === 'Shift') view.setFreeLook(false);
 });
 window.addEventListener('blur', () => view.setFreeLook(false));
+// O toggles a camera high above the FPV track (track mode only).
+let overview = false;
+window.addEventListener('keydown', (e) => {
+  const typing = e.target instanceof HTMLInputElement && e.target.type === 'text';
+  if (e.code !== 'KeyO' || typing || e.repeat) return;
+  overview = !overview;
+  view.setOverview(overview);
+});
 
 const seedInput = byId<HTMLInputElement>('seed');
 const showSeed = (): void => {
