@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeConfig, decodeStorm, encodeConfig } from './shareLink';
+import { decodeConfig, decodePath, decodeStorm, encodeConfig } from './shareLink';
 import { defaultConfig } from './sim';
 import type { Config } from './types';
 
@@ -49,10 +49,19 @@ describe('share link', () => {
   });
 
   it('carries a storm in progress', () => {
-    expect(encodeConfig(defaultConfig, defaultConfig, true)).toBe(
+    expect(encodeConfig(defaultConfig, defaultConfig, { storm: true })).toBe(
       `seed=${defaultConfig.seed}&storm=1`,
     );
     expect(decodeStorm('#seed=1&storm=1')).toBe(true);
     expect(decodeStorm('#seed=1')).toBe(false);
+  });
+
+  it('carries a hand-picked route', () => {
+    expect(encodeConfig(defaultConfig, defaultConfig, { path: 'river' })).toContain('&path=river');
+    expect(encodeConfig(defaultConfig, defaultConfig, { path: 42 })).toContain('&path=42');
+    expect(decodePath('#path=river')).toBe('river');
+    expect(decodePath('#path=42')).toBe(42);
+    expect(decodePath('#path=nope')).toBeUndefined();
+    expect(decodePath('#seed=1')).toBeUndefined();
   });
 });

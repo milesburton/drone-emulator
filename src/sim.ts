@@ -644,13 +644,14 @@ const switchMode = (
   terrain: Terrain,
 ): readonly [Snapshot, Terrain] => {
   const home = padFor(config, terrain);
-  const [waypoints, rng] = routeFor(config, terrain, s.rng, home);
+  // Seeded by the map, so a shared link opens on the same route.
+  const [waypoints] = routeFor(config, terrain, config.seed, home);
   const { successes, failures, lost, crashed, totalTrip, laps, bestLap } = s.mission;
   return [
     {
       ...s,
       config,
-      rng,
+      path: undefined,
       ...onPad(home, waypoints),
       mission: {
         ...startMission(home),
@@ -731,6 +732,7 @@ export const newMap = (s: Snapshot, seed: number): readonly [Snapshot, Terrain] 
       ...s,
       config,
       waypoints: fresh.waypoints,
+      path: undefined,
       drone: fresh.drone,
       ekf: fresh.ekf,
       mission: { ...fresh.mission, successes, failures, lost, crashed, totalTrip, laps, bestLap },
@@ -743,15 +745,21 @@ export const newMap = (s: Snapshot, seed: number): readonly [Snapshot, Terrain] 
 const resumeIndex = (s: Snapshot, preferred: number): number =>
   s.mission.phase === 'returning' || s.mission.phase === 'landing' ? 0 : preferred;
 
-export const randomisePath = (s: Snapshot, terrain: Terrain): Snapshot => {
-  const [waypoints, rng] = routeFor(s.config, terrain, s.rng, s.mission.home);
+/** Plans the sortie route for `pathSeed`; the same seed on the same map always gives the same route. */
+export const setPath = (s: Snapshot, terrain: Terrain, pathSeed: number): Snapshot => {
+  const [waypoints] = routeFor(s.config, terrain, pathSeed, s.mission.home);
   return {
     ...s,
-    rng,
     waypoints,
+    path: s.config.mode === 'sortie' ? pathSeed : undefined,
     drone: { ...s.drone, wp: resumeIndex(s, 1) },
     mission: { ...s.mission, attempt: 0 },
   };
+};
+
+export const randomisePath = (s: Snapshot, terrain: Terrain): Snapshot => {
+  const [pathSeed, rng] = drawSeed(s.rng);
+  return setPath({ ...s, rng }, terrain, pathSeed);
 };
 
 export const triggerStorm = (s: Snapshot): Snapshot => ({
@@ -780,6 +788,7 @@ export const followRiver = (s: Snapshot, terrain: Terrain): Snapshot => {
   return {
     ...s,
     waypoints,
+    path: 'river',
     drone: { ...s.drone, wp: resumeIndex(s, Math.max(1, nearestWaypoint(waypoints, s.drone.pos))) },
     mission: { ...s.mission, attempt: 0 },
   };

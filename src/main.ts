@@ -11,11 +11,12 @@ import {
   newMap,
   parseSeed,
   randomisePath,
+  setPath,
   step,
   calmStorm,
   triggerStorm,
 } from './sim';
-import { decodeConfig, decodeStorm, encodeConfig } from './shareLink';
+import { decodeConfig, decodePath, decodeStorm, encodeConfig } from './shareLink';
 import { createTerrain } from './terrain';
 import type { Config, Mode } from './types';
 
@@ -40,10 +41,14 @@ const initialConfig: Config = {
 const model = (() => {
   const terrain = createTerrain(initialConfig);
   const created = createSnapshot(initialConfig, terrain);
-  return {
-    terrain,
-    snapshot: decodeStorm(window.location.hash) ? triggerStorm(created) : created,
-  };
+  const path = initialConfig.mode === 'sortie' ? decodePath(window.location.hash) : undefined;
+  const routed =
+    path === 'river'
+      ? followRiver(created, terrain)
+      : path !== undefined
+        ? setPath(created, terrain, path)
+        : created;
+  return { terrain, snapshot: decodeStorm(window.location.hash) ? triggerStorm(routed) : routed };
 })();
 
 const configure = (patch: Partial<Config>): void => {
@@ -163,7 +168,7 @@ let groundSpeed = 0;
 // Keep the address in step with the settings, writing only when it changes.
 let shown = '';
 const syncAddress = (): void => {
-  const next = `#${encodeConfig(model.snapshot.config, defaultConfig, model.snapshot.weather.phase === 'storm')}`;
+  const next = `#${encodeConfig(model.snapshot.config, defaultConfig, { storm: model.snapshot.weather.phase === 'storm', path: model.snapshot.path })}`;
   if (next === shown) return;
   shown = next;
   window.history.replaceState(null, '', next);

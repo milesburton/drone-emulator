@@ -126,12 +126,16 @@ export interface EkfState {
   readonly P: Mat;
 }
 
+export type PathChoice = 'river' | number;
+
 export interface Snapshot {
   readonly time: number;
   /** State of the seeded RNG; every random draw returns the next state. */
   readonly rng: number;
   readonly config: Config;
   readonly waypoints: readonly Vec3[];
+  /** How a sortie route was chosen by hand: 'river', or the seed of a Random Path; absent for the map's own route. */
+  readonly path?: PathChoice;
   readonly drone: Drone;
   readonly ekf: EkfState;
   readonly weather: Weather;

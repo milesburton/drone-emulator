@@ -1,6 +1,6 @@
 import { BIOMES, type Biome } from './biome';
 import { MAX_SEED, parseSeed } from './sim';
-import type { Config, Mode } from './types';
+import type { Config, Mode, PathChoice } from './types';
 
 const MODES: readonly Mode[] = ['sortie', 'track', 'run'];
 
@@ -21,7 +21,14 @@ const whole = (text: string | null): number | null => {
  * The settings a person can change, as a short URL fragment (`seed=7&mode=run&wind=6,-3`).
  * Only what differs from `defaults` is written, so the common case stays short.
  */
-export const encodeConfig = (cfg: Config, defaults: Config, storm = false): string => {
+export interface LinkExtras {
+  /** A storm is under way. */
+  readonly storm?: boolean;
+  /** A hand-picked sortie route. */
+  readonly path?: PathChoice;
+}
+
+export const encodeConfig = (cfg: Config, defaults: Config, extras: LinkExtras = {}): string => {
   const parts: readonly (readonly [string, string] | null)[] = [
     ['seed', String(cfg.seed)],
     cfg.mode !== defaults.mode ? ['mode', cfg.mode] : null,
@@ -33,7 +40,8 @@ export const encodeConfig = (cfg: Config, defaults: Config, storm = false): stri
     cfg.lakes !== defaults.lakes ? ['lakes', cfg.lakes ? '1' : '0'] : null,
     cfg.river !== defaults.river ? ['river', cfg.river ? '1' : '0'] : null,
     cfg.roads !== defaults.roads ? ['roads', cfg.roads ? '1' : '0'] : null,
-    storm ? ['storm', '1'] : null,
+    extras.storm ? ['storm', '1'] : null,
+    extras.path !== undefined ? ['path', String(extras.path)] : null,
   ];
   return parts
     .flatMap((p) => (p ? [p] : []))
@@ -83,3 +91,11 @@ export const decodeConfig = (fragment: string): Partial<Config> => {
 /** Whether the link asks for a storm to be under way when the page opens. */
 export const decodeStorm = (fragment: string): boolean =>
   new URLSearchParams(fragment.replace(/^#/, '')).get('storm') === '1';
+
+/** The hand-picked sortie route named by the link, if any. */
+export const decodePath = (fragment: string): PathChoice | undefined => {
+  const text = new URLSearchParams(fragment.replace(/^#/, '')).get('path');
+  if (text === 'river') return 'river';
+  const n = parseSeed(text ?? '');
+  return n === null ? undefined : n;
+};
