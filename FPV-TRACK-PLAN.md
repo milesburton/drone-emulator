@@ -57,6 +57,7 @@ Go with A. Also add a mode-specific speed (about 20 m/s) so corners are flyable 
 
 ## Progress
 
+- Phase 3 done 2026-11-06: `trackFlight.ts` (route = pad, gates x laps by energy budget, gate 0 again at the end; 20 m/s; gate-height altitude with 5 m floor), mode-aware pad/route in `sim.ts`, mode switch re-homes, lap timing (`Mission.laps/lapStart/lastLap/bestLap`, gate 0 = start/finish). Tests: 3 seeds fly 300 s with no crash and sensible lap times. Arrival is still the 20 m radius, so gate pass/miss is phase 4. HUD lap readout and a browser check of the flight are not done.
 - Phase 2 done 2026-11-06: `trackModel.ts` (gates, pylons, poles, flags, trees, ghost line), Mode selector in the panel, `O` = overview camera (track mode). In track mode the sortie route and flags are hidden; the drone still flies sortie legs until phase 3. Gates read small from 420 m; check closer up when phase 3 flies them.
 - Phase 1 done 2026-11-05: `track.ts` (generator, arena search), `Config.mode`, 7 tests. ADR: homelab-docs `adr-drone-emulator-fpv-track`.
   Decisions taken: option A (current drone), autopilot only, mode toggle.

@@ -101,6 +101,11 @@ export interface Mission {
   /** How the last flight ended; cleared at takeoff. */
   readonly outcome: Outcome | null;
   readonly lastFailure: FailureReason | null;
+  /** Track mode: laps completed in total, when the current lap began (null before the first start/finish), and the last and best lap times in seconds. */
+  readonly laps: number;
+  readonly lapStart: number | null;
+  readonly lastLap: number | null;
+  readonly bestLap: number | null;
 }
 
 export type Vec = readonly number[];
