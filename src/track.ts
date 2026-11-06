@@ -1,4 +1,5 @@
 import { FOOTPRINT, groundBeneath, TURN_RADIUS } from './altitude';
+import { FRAME } from './gates';
 import { ranges } from './rng';
 import { distanceTo } from './routes';
 import type { Terrain } from './terrain';
@@ -30,6 +31,8 @@ export interface Track {
   readonly centre: Vec3;
   /** Where the drone waits before the first gate, on the ground. */
   readonly start: Vec3;
+  /** Where the drone turns for the pad after the last lap, clear of the other gates. */
+  readonly exit: Vec3;
   /** In flying order; the lap closes from the last back to the first. */
   readonly gates: readonly Gate[];
   readonly obstacles: readonly Obstacle[];
@@ -74,6 +77,17 @@ export const ARENA_RADIUS = 300;
 /** The pad is this far before the first gate and this far to one side, so the drone never has to fly back through the gate to land. */
 const START_RUN = 70;
 const START_SIDE = 80;
+/** Pad positions to try, as [back from gate 0, to the side], nearest and left first. */
+/** Directions to try for the exit leg, as turns from gate 0's axis, straight on first. */
+const EXIT_TURNS: readonly number[] = [0, 0.7, -0.7, 1.4, -1.4];
+const PAD_CHOICES: readonly (readonly [number, number])[] = [
+  [START_RUN, START_SIDE],
+  [START_RUN, -START_SIDE],
+  [START_RUN * 1.6, START_SIDE],
+  [START_RUN * 1.6, -START_SIDE],
+];
+/** How far past the start/finish gate the drone flies before turning for the pad. */
+export const EXIT_RUN = 100;
 const OBSTACLES = 14;
 const ATTEMPTS = 60;
 const SALT = 0x1f83d9ab;
@@ -167,10 +181,44 @@ export const generateTrack = (terrain: Terrain, centre: Vec3, seed: number): Tra
   });
 
   const legs = points.map((p, i) => [p, points[(i + 1) % count]] as const);
+  // The legs flown outside the loop: pad to gate 0, gate 0 to the exit point, and back to the pad.
+  const first = gates[0];
+  const run: Vec2 = [Math.cos(first.yaw), Math.sin(first.yaw)];
+  const gate0: Vec2 = [first.pos[0], first.pos[2]];
+  // The pad sits beside the start run and the exit point ahead of gate 0; try a few of each and
+  // take the first pairing whose legs (pad to gate 0, gate 0 to exit, exit to pad) clear every other gate.
+  const padAt = ([back, side]: readonly [number, number]): Vec2 => [
+    gate0[0] - run[0] * back - run[1] * side,
+    gate0[1] - run[1] * back + run[0] * side,
+  ];
+  const exitAt = (turn: number): Vec2 => [
+    gate0[0] + Math.cos(first.yaw + turn) * EXIT_RUN,
+    gate0[1] + Math.sin(first.yaw + turn) * EXIT_RUN,
+  ];
+  const legClear = (a: Vec2, b: Vec2): boolean =>
+    gates
+      .slice(1)
+      .every(
+        (g) =>
+          toLeg(a, b, g.pos[0], g.pos[2]) > g.width / 2 + FRAME + FOOTPRINT + OBSTACLE_MARGIN / 2,
+      );
+  const pairs = EXIT_TURNS.flatMap((turn) =>
+    PAD_CHOICES.map((choice) => [padAt(choice), exitAt(turn)] as const),
+  );
+  const [pad, exit] =
+    pairs.find(([p, e]) => legClear(p, gate0) && legClear(gate0, e) && legClear(e, p)) ?? pairs[0];
+  const startAt = seat(terrain, pad[0], pad[1]);
+  const exitPoint: Vec3 = [exit[0], first.pos[1], exit[1]];
+  const flown: readonly (readonly [Vec2, Vec2])[] = [
+    ...legs,
+    [pad, gate0],
+    [gate0, exit],
+    [exit, pad],
+  ];
   const gateClear = (x: number, z: number, radius: number): boolean =>
     gates.every((g) => Math.hypot(g.pos[0] - x, g.pos[2] - z) > g.width + radius + OBSTACLE_MARGIN);
   const clearOfLine = (x: number, z: number, radius: number): boolean =>
-    legs.every(([a, b]) => toLeg(a, b, x, z) > radius + FOOTPRINT + OBSTACLE_MARGIN);
+    flown.every(([a, b]) => toLeg(a, b, x, z) > radius + FOOTPRINT + OBSTACLE_MARGIN);
   const [rolls] = ranges((seed ^ SALT) + 97, OBSTACLES * 4 * 6, 0, 1);
   const obstacles = Array.from({ length: OBSTACLES * 6 }, (_, k): Obstacle | null => {
     const kind = OBSTACLE_KINDS[Math.floor(rolls[k * 4 + 2] * OBSTACLE_KINDS.length)];
@@ -189,15 +237,10 @@ export const generateTrack = (terrain: Terrain, centre: Vec3, seed: number): Tra
     .filter((o): o is Obstacle => o !== null)
     .slice(0, OBSTACLES);
 
-  const first = gates[0];
-  const run: Vec2 = [Math.cos(first.yaw), Math.sin(first.yaw)];
   return {
     centre,
-    start: seat(
-      terrain,
-      first.pos[0] - run[0] * START_RUN - run[1] * START_SIDE,
-      first.pos[2] - run[1] * START_RUN + run[0] * START_SIDE,
-    ),
+    start: startAt,
+    exit: exitPoint,
     gates,
     obstacles,
   };

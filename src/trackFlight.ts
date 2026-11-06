@@ -10,8 +10,6 @@ export const TRACK_SPEED = 20;
 export const TRACK_FLOOR = 5;
 /** Height above the pad that a track takeoff climbs to before heading for the first gate. */
 export const TRACK_TAKEOFF = 10;
-/** How far past the start/finish gate the drone flies before turning for the pad. */
-const EXIT_RUN = 100;
 /** Most laps one sortie plans, however little a lap costs. */
 export const MAX_LAPS = 10;
 /** Charge a track sortie may plan to use, as for sorties. */
@@ -39,15 +37,9 @@ export const trackRoute = (terrain: Terrain, seed: number): readonly Vec3[] => {
   const track = trackFor(terrain, seed);
   const gates = loop(track);
   const laps = Array.from({ length: lapsFor(track, terrain) }, () => gates).flat();
-  // The first gate again at the end, so the last lap is timed like the others.
-  const first = track.gates[0];
-  // Then well clear of the start/finish gate, so the turn back to the pad does not clip its frame.
-  const exit: Vec3 = [
-    first.pos[0] + Math.cos(first.yaw) * EXIT_RUN,
-    first.pos[1],
-    first.pos[2] + Math.sin(first.yaw) * EXIT_RUN,
-  ];
-  return [track.start, ...laps, gates[0], exit];
+  // The first gate again at the end, so the last lap is timed like the others, then the exit point,
+  // well clear of that gate so the turn back to the pad does not clip its frame.
+  return [track.start, ...laps, gates[0], track.exit];
 };
 
 /** Which gate and lap a route waypoint (index into `trackRoute`) is; null for the pad. Gate 0 is the start/finish. */

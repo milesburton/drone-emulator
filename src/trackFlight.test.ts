@@ -69,3 +69,23 @@ describe('flying the track', () => {
     expect(s.drone.pos).toEqual(s.mission.home);
   });
 });
+
+describe('legs outside the loop', () => {
+  // Seeds that once clipped a tree, a pylon or a neighbouring gate on the way out, the exit or the way home.
+  it.each([123, 19, 7, 99])(
+    'seed %i flies a whole sortie, takeoff to landing, without a crash',
+    (seed) => {
+      const cfg = cfgFor(seed);
+      const t = createTerrain(cfg);
+      const start = createSnapshot(cfg, t);
+      const done = run(
+        { ...start, weather: { ...start.weather, phase: 'clear', phaseLeft: 1e9 } },
+        t,
+        240,
+      );
+      expect(done.mission.crashed).toBe(0);
+      expect(done.mission.passed).toBeGreaterThan(20);
+    },
+    60_000,
+  );
+});
