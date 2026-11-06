@@ -22,6 +22,7 @@ import {
 } from './mission';
 import { gaussians, next } from './rng';
 import {
+  aimAt,
   gateAt,
   nextTrackAltitude,
   speedFor,
@@ -30,8 +31,10 @@ import {
   trackRoute,
 } from './trackFlight';
 import { trackFor } from './track';
+import { crossing, hitsGate, hitsObstacle, type GateResult } from './gates';
+import { groundBeneath } from './altitude';
 import { createTerrain, terrainKey, type Terrain } from './terrain';
-import type { Config, Crash, Mission, Snapshot, Vec2, Vec3 } from './types';
+import type { Config, Crash, CrashCause, Mission, Snapshot, Vec2, Vec3 } from './types';
 import { retarget, riverWaypoints } from './waypoints';
 import { clearStorm, createWeather, gustAt, startStorm, stepWeather } from './weather';
 
@@ -125,6 +128,8 @@ interface Motion {
   readonly air: Vec2;
   /** Within reach of the current target. */
   readonly arrived: boolean;
+  /** Track mode: how the move went through the gate being flown to, if it crossed its plane. */
+  readonly gate?: GateResult;
   /** Set while the drone is falling or wrecked; replaces the flight attitude. */
   readonly wreck?: { readonly pitch: number; readonly roll: number; readonly crash: Crash };
 }
@@ -138,39 +143,76 @@ const holding = (s: Snapshot, pos: Vec3, heading: number, arrived = false): Moti
   arrived,
 });
 
+/** The gate the drone is flying to, or null when heading for the pad (or not on a track). */
+const gateTarget = (s: Snapshot, terrain: Terrain) => {
+  if (s.config.mode !== 'track') return null;
+  const gates = trackFor(terrain, s.config.seed).gates;
+  const at = gateAt(s.drone.wp, gates.length);
+  return at === null ? null : gates[at.gate];
+};
+
+/** Result of the move to `pos` through the gate being flown to: undefined when no gate is the target, null when it did not cross. */
+const gateFlown = (s: Snapshot, terrain: Terrain, pos: Vec3): GateResult | null | undefined => {
+  const gate = gateTarget(s, terrain);
+  return gate === null ? undefined : crossing(gate, s.drone.pos, pos);
+};
+
 const fly = (s: Snapshot, terrain: Terrain, dt: number, target: Vec3): Motion => {
   const { config: cfg } = s;
   const [px, py, pz] = s.drone.pos;
-  const dx = target[0] - px;
-  const dz = target[2] - pz;
+  const gate = gateTarget(s, terrain);
+  const aim = gate === null ? target : aimAt(gate, s.drone.pos);
+  const dx = aim[0] - px;
+  const dz = aim[2] - pz;
   const distance = Math.hypot(dx, dz);
+  const speed = speedFor(cfg);
+  const gust = gustAt(s.time, s.weather.rain);
+  // On a track the autopilot points into the wind by the crab angle that holds its line (it is told the wind).
+  const course = Math.atan2(dz, dx);
+  const crab =
+    cfg.mode === 'track'
+      ? Math.asin(
+          Math.max(
+            -0.95,
+            Math.min(
+              0.95,
+              (-(cfg.windX + gust[0]) * Math.sin(course) +
+                (cfg.windZ + gust[1]) * Math.cos(course)) /
+                speed,
+            ),
+          ),
+        )
+      : 0;
   const heading =
     distance < 1e-6
       ? s.drone.heading
-      : turnTowards(s.drone.heading, Math.atan2(dz, dx), MAX_TURN_RATE * dt);
-  const speed = speedFor(cfg);
+      : turnTowards(s.drone.heading, course - crab, MAX_TURN_RATE * dt);
   const air: Vec2 = [Math.cos(heading) * speed, Math.sin(heading) * speed];
-  const gust = gustAt(s.time, s.weather.rain);
   const nx = px + (air[0] + cfg.windX + gust[0]) * dt;
   const nz = pz + (air[1] + cfg.windZ + gust[1]) * dt;
+  const ny =
+    cfg.mode === 'track'
+      ? nextTrackAltitude(terrain, py, nx, nz, target[1], dt)
+      : nextAltitude(terrain, py, nx, nz, heading, dt);
+  const pos: Vec3 = [nx, ny, nz];
+  const through = cfg.mode === 'track' ? gateFlown(s, terrain, pos) : undefined;
   return {
-    pos: [
-      nx,
-      cfg.mode === 'track'
-        ? nextTrackAltitude(terrain, py, nx, nz, target[1], dt)
-        : nextAltitude(terrain, py, nx, nz, heading, dt),
-      nz,
-    ],
+    pos,
     heading,
     airSpeed: speed,
     air,
-    arrived: distance < ARRIVAL_RADIUS,
+    // A gate is reached by crossing its plane, not by coming near; the pad by coming near.
+    arrived: through === undefined ? distance < ARRIVAL_RADIUS : through !== null,
+    ...(through === undefined || through === null ? {} : { gate: through }),
   };
 };
 
-const takeOff = (s: Snapshot, dt: number): Motion => {
+const takeOff = (s: Snapshot, terrain: Terrain, dt: number): Motion => {
   const [px, py, pz] = s.drone.pos;
-  const top = s.mission.home[1] + (s.config.mode === 'track' ? TRACK_TAKEOFF : CLEARANCE);
+  const top =
+    s.config.mode === 'track'
+      ? Math.max(groundBeneath(terrain, px, pz), terrain.waterLevel) + TRACK_TAKEOFF
+      : s.mission.home[1] + CLEARANCE;
   const next = Math.min(top, py + TAKEOFF_CLIMB * dt);
   return holding(s, [px, next, pz], s.drone.heading, next >= top);
 };
@@ -219,7 +261,7 @@ const moveFor = (s: Snapshot, terrain: Terrain, dt: number): Motion => {
     case 'grounded':
       return holding(s, s.drone.pos, s.drone.heading);
     case 'takeoff':
-      return takeOff(s, dt);
+      return takeOff(s, terrain, dt);
     case 'landing':
       return land(s, terrain, dt);
     case 'lost':
@@ -291,7 +333,12 @@ const touchDown = (s: Snapshot, terrain: Terrain, down = false): Snapshot => {
 };
 
 /** Power gone mid-air (flat battery or a strike on the terrain): momentum carries on while the airframe starts to tumble. */
-const loseFlight = (s: Snapshot, wind: Vec2, downBy: 'power' | 'impact'): Snapshot => {
+const loseFlight = (
+  s: Snapshot,
+  wind: Vec2,
+  downBy: 'power' | 'impact',
+  cause: CrashCause,
+): Snapshot => {
   const [a, r1] = next(s.rng);
   const [b, r2] = next(r1);
   const [c, r3] = next(r2);
@@ -310,10 +357,21 @@ const loseFlight = (s: Snapshot, wind: Vec2, downBy: 'power' | 'impact'): Snapsh
       ...s.mission,
       phase: 'lost',
       downBy,
+      crashCause: cause,
       groundLeft: CRASH_TIME,
     },
   };
 };
+
+/** Counts a gate flown through (or missed) on the mission. */
+const tally = (m: Mission, gate: GateResult | undefined): Mission =>
+  gate === undefined
+    ? m
+    : {
+        ...m,
+        passed: m.passed + (gate === 'pass' ? 1 : 0),
+        missed: m.missed + (gate === 'miss' ? 1 : 0),
+      };
 
 /**
  * Lap timing on a track: gate 0 is the start/finish. The first arrival starts the clock; each later
@@ -345,7 +403,7 @@ const transition = (s: Snapshot, motion: Motion, terrain: Terrain): Snapshot => 
     ...s,
     mission: { ...m, phase, ...patch },
   });
-  const powerLoss = (): Snapshot => loseFlight(s, wind, 'power');
+  const powerLoss = (): Snapshot => loseFlight(s, wind, 'power', 'power');
   const speed = speedFor(s.config);
   switch (m.phase) {
     case 'grounded':
@@ -373,7 +431,7 @@ const transition = (s: Snapshot, motion: Motion, terrain: Terrain): Snapshot => 
         ? {
             ...s,
             drone: { ...s.drone, wp: (wp + 1) % s.waypoints.length },
-            mission: timeLap(s, terrain),
+            mission: tally(timeLap(s, terrain), motion.gate),
           }
         : s;
     }
@@ -389,17 +447,35 @@ const transition = (s: Snapshot, motion: Motion, terrain: Terrain): Snapshot => 
   }
 };
 
+/** What the drone has just hit, if anything: the ground or water, another craft, or the track's gates and obstacles. */
+const strikeCause = (
+  s: Snapshot,
+  terrain: Terrain,
+  inAir: boolean,
+  aloft: boolean,
+): CrashCause | null => {
+  const { pos } = s.drone;
+  if (aloft && hitsCraft(pos, s.config.seed, s.time, terrain)) return 'craft';
+  if (aloft && s.config.mode === 'track') {
+    const track = trackFor(terrain, s.config.seed);
+    if (track.obstacles.some((o) => hitsObstacle(o, pos))) return 'obstacle';
+    if (track.gates.some((g) => hitsGate(g, pos))) return 'gate';
+  }
+  if (inAir && hasHitTerrain(pos, terrain)) {
+    return groundBeneath(terrain, pos[0], pos[2]) <= terrain.waterLevel ? 'water' : 'terrain';
+  }
+  return null;
+};
+
 export const step = (s: Snapshot, terrain: Terrain, dt: number): Snapshot => {
   const { config: cfg } = s;
   const { phase } = s.mission;
   const inAir = phase === 'cruise' || phase === 'returning';
   const aloft = inAir || phase === 'takeoff' || phase === 'landing';
-  if (
-    (inAir && hasHitTerrain(s.drone.pos, terrain)) ||
-    (aloft && hitsCraft(s.drone.pos, cfg.seed, s.time, terrain))
-  ) {
+  const cause = strikeCause(s, terrain, inAir, aloft);
+  if (cause !== null) {
     const gust = gustAt(s.time, s.weather.rain);
-    return loseFlight(s, [cfg.windX + gust[0], cfg.windZ + gust[1]], 'impact');
+    return loseFlight(s, [cfg.windX + gust[0], cfg.windZ + gust[1]], 'impact', cause);
   }
   const motion = moveFor(s, terrain, dt);
   const flying = s.mission.phase !== 'grounded' && s.mission.phase !== 'lost';

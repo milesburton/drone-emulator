@@ -69,6 +69,9 @@ export interface Crash {
 export type Phase = 'grounded' | 'takeoff' | 'cruise' | 'returning' | 'landing' | 'lost';
 
 /** How the last flight ended. */
+/** What brought a drone down. */
+export type CrashCause = 'terrain' | 'water' | 'craft' | 'gate' | 'obstacle' | 'power';
+
 export type Outcome = 'success' | 'failed' | 'lost' | 'crashed';
 
 /** Why a flight was abandoned; only the cheap cases are told apart so far. */
@@ -106,6 +109,11 @@ export interface Mission {
   readonly lapStart: number | null;
   readonly lastLap: number | null;
   readonly bestLap: number | null;
+  /** Track mode: gates flown through the opening, and gates crossed outside it. */
+  readonly passed: number;
+  readonly missed: number;
+  /** What brought the drone down last time; null until the first crash. */
+  readonly crashCause: CrashCause | null;
 }
 
 export type Vec = readonly number[];

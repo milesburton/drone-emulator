@@ -209,4 +209,7 @@ export const startMission = (home: Vec3): Mission => ({
   lapStart: null,
   lastLap: null,
   bestLap: null,
+  passed: 0,
+  missed: 0,
+  crashCause: null,
 });

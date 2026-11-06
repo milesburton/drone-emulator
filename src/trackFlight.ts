@@ -1,7 +1,7 @@
 import { groundBeneath, MAX_CLIMB, MAX_DESCENT, CLIMB_RESPONSE } from './altitude';
 import { routeEnergy } from './mission';
 import type { Terrain } from './terrain';
-import { trackFor, type Track } from './track';
+import { trackFor, type Gate, type Track } from './track';
 import type { Config, Vec3 } from './types';
 
 /** Speed through the air on the track, m/s; slower than a sortie so a 24 m gate and tight corners are flyable. */
@@ -56,5 +56,21 @@ export const nextTrackAltitude = (
 ): number => {
   const wanted = (targetY - y) * Math.min(1, dt * CLIMB_RESPONSE);
   const eased = y + Math.max(-MAX_DESCENT * dt, Math.min(MAX_CLIMB * dt, wanted));
-  return Math.max(eased, groundBeneath(terrain, x, z) + TRACK_FLOOR);
+  return Math.max(eased, Math.max(groundBeneath(terrain, x, z), terrain.waterLevel) + TRACK_FLOOR);
+};
+
+/** How far ahead along a gate's axis the autopilot aims, metres: longer lines up sooner but cuts across further. */
+export const LEAD = 40;
+
+/**
+ * Where to steer for `gate` from `from`: a point on the gate's axis `LEAD` metres ahead of the
+ * drone's own position along it, so the drone eases onto the axis and crosses square to the
+ * opening. Past the gate's plane (a miss) it aims back before the gate to come round again.
+ */
+export const aimAt = (gate: Gate, from: Vec3): Vec3 => {
+  const fx = Math.cos(gate.yaw);
+  const fz = Math.sin(gate.yaw);
+  const along = (from[0] - gate.pos[0]) * fx + (from[2] - gate.pos[2]) * fz;
+  const k = along > 0 ? -LEAD : along + LEAD;
+  return [gate.pos[0] + fx * k, gate.pos[1], gate.pos[2] + fz * k];
 };

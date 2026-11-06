@@ -1,4 +1,4 @@
-import { FOOTPRINT, TURN_RADIUS } from './altitude';
+import { FOOTPRINT, groundBeneath, TURN_RADIUS } from './altitude';
 import { ranges } from './rng';
 import { distanceTo } from './routes';
 import type { Terrain } from './terrain';
@@ -37,10 +37,10 @@ export interface Track {
 
 /** Gate openings leave about 8 m clear either side of the 14 m airframe. */
 export const GATE_WIDTH: Readonly<Record<GateKind, number>> = {
-  gate: 24,
-  hoop: 20,
-  arch: 28,
-  dive: 24,
+  gate: 36,
+  hoop: 34,
+  arch: 36,
+  dive: 36,
 };
 /** Height of the opening's centre above the ground, metres, by kind. */
 export const GATE_HEIGHT: Readonly<Record<GateKind, readonly [number, number]>> = {
@@ -67,7 +67,7 @@ export const MIN_SPACING = 3 * TURN_RADIUS;
 /** Sharpest change of course allowed at a gate, radians. */
 export const MAX_TURN = (100 * Math.PI) / 180;
 /** Space kept between an obstacle's edge and the racing line, beyond the airframe's reach. */
-export const OBSTACLE_MARGIN = 6;
+export const OBSTACLE_MARGIN = 20;
 /** Loop radius range, metres, and the arena it sits in. */
 const LOOP_RADIUS: readonly [number, number] = [150, 230];
 export const ARENA_RADIUS = 300;
@@ -81,7 +81,10 @@ const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
 const lerp = ([a, b]: readonly [number, number], t: number): number => a + (b - a) * t;
 const seat = (terrain: Terrain, x: number, z: number, above = 0): Vec3 => [
   x,
-  terrain.heightAt(x, z) + above,
+  // A gate stands clear of the highest ground under the airframe's reach, and of the water.
+  (above > 0
+    ? Math.max(groundBeneath(terrain, x, z), terrain.waterLevel)
+    : terrain.heightAt(x, z)) + above,
   z,
 ];
 

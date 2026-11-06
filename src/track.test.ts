@@ -1,3 +1,4 @@
+import { groundBeneath } from './altitude';
 import { describe, expect, it } from 'vitest';
 import { FOOTPRINT } from './altitude';
 import { defaultConfig } from './sim';
@@ -54,7 +55,9 @@ describe('track generator', () => {
     tracks.forEach(({ gates }) =>
       gates.forEach((g) => {
         expect(g.width).toBe(GATE_WIDTH[g.kind]);
-        const above = g.pos[1] - terrain.heightAt(g.pos[0], g.pos[2]);
+        // Seated above the highest ground under the airframe's reach, and above any water.
+        const above =
+          g.pos[1] - Math.max(groundBeneath(terrain, g.pos[0], g.pos[2]), terrain.waterLevel);
         expect(above).toBeGreaterThanOrEqual(GATE_HEIGHT[g.kind][0] - 1e-6);
         expect(above).toBeLessThanOrEqual(GATE_HEIGHT[g.kind][1] + 1e-6);
         expect(Math.hypot(g.pos[0] - centre[0], g.pos[2] - centre[2])).toBeLessThanOrEqual(

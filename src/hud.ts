@@ -1,3 +1,5 @@
+import { trackFor } from './track';
+import { gateAt } from './trackFlight';
 import { pressureOf, windBiasOf } from './ekf';
 import { MAX_ATTEMPTS } from './mission';
 import { STATUS_STYLE, statusOf } from './status';
@@ -43,6 +45,15 @@ export interface Readouts {
   readonly pressure: number;
 }
 
+/** Track progress: the gate being flown to, the lap, gates through and missed, and the best lap. */
+export const trackLine = (s: Snapshot, terrain: Terrain): string => {
+  const n = trackFor(terrain, s.config.seed).gates.length;
+  const at = gateAt(s.drone.wp, n);
+  const m = s.mission;
+  const best = m.bestLap === null ? '' : ` · best ${m.bestLap.toFixed(1)} s`;
+  return `${at === null ? 'pad' : `gate ${at.gate + 1}/${n}`} · ${m.laps} laps · ${m.passed} through, ${m.missed} missed${best}`;
+};
+
 /** Everything the instrument cluster shows, as plain numbers and strings. Altitude is above the ground. */
 export const readouts = (s: Snapshot, terrain: Terrain, groundSpeed: number): Readouts => {
   const [x, y, z] = s.drone.pos;
@@ -76,9 +87,10 @@ export const readouts = (s: Snapshot, terrain: Terrain, groundSpeed: number): Re
       colour: `#${style.colour.toString(16).padStart(6, '0')}`,
     },
     phase: `${m.phase}${retry}`,
-    waypoint: `${s.drone.wp + 1}/${s.waypoints.length}`,
+    waypoint:
+      s.config.mode === 'track' ? trackLine(s, terrain) : `${s.drone.wp + 1}/${s.waypoints.length}`,
     trip: `${m.trip.toFixed(0)} m (total ${m.totalTrip.toFixed(0)} m)`,
-    flights: `${m.successes} ok, ${m.failures} failed, ${m.crashed} crashed (${m.lost} after power loss)${why}`,
+    flights: `${m.successes} ok, ${m.failures} failed, ${m.crashed} crashed (${m.lost} after power loss)${why}${m.crashCause ? `, last crash: ${m.crashCause}` : ''}`,
     weather: `${s.weather.phase}, rain ${(s.weather.rain * 100).toFixed(0)}%`,
     ekfError: Math.hypot(s.ekf.x[0] - x, s.ekf.x[1] - z),
     pressure: pressureOf(s.ekf),
