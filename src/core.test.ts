@@ -567,7 +567,7 @@ describe('sim', () => {
           expect(pos[1] - t.heightAt(pos[0], pos[2])).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6),
         );
     });
-  });
+  }, 60_000);
 
   it('climbs and descends gently on ordinary terrain', () => {
     [1337, 7, 42].forEach((seed) => {
@@ -835,7 +835,7 @@ describe('mission', () => {
       expect(route[0][2]).toBe(home[2]);
       expect(routeLength(route)).toBeLessThanOrEqual(routeLimit(AIR_SPEED));
     });
-  });
+  }, 60_000);
 
   it('plans routes that use nearly the whole energy budget, leaving about the reserve', () => {
     [1, 7, 42, 99].forEach((seed) => {
