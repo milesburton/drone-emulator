@@ -14,13 +14,15 @@ const run = (s: Snapshot, terrain: ReturnType<typeof createTerrain>, seconds: nu
   );
 
 describe('track route', () => {
-  it('starts at the pad, ends on gate 0, and visits the gates in order', () => {
+  it('starts at the pad, ends on gate 0 and then an exit point, and visits the gates in order', () => {
     const t = createTerrain(cfgFor(7));
     const track = trackFor(t, 7);
     const route = trackRoute(t, 7);
     expect(route[0]).toEqual(track.start);
-    expect(route[route.length - 1]).toEqual(track.gates[0].pos);
-    route.slice(1).forEach((p, i) => expect(p).toEqual(track.gates[i % track.gates.length].pos));
+    expect(route[route.length - 2]).toEqual(track.gates[0].pos);
+    route
+      .slice(1, -1)
+      .forEach((p, i) => expect(p).toEqual(track.gates[i % track.gates.length].pos));
     expect(gateAt(0, 9)).toBeNull();
     expect(gateAt(10, 9)).toEqual({ gate: 0, lap: 1 });
   });

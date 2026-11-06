@@ -102,6 +102,22 @@ describe('on the track', () => {
     expect(s.mission.crashCause).toBe('obstacle');
   });
 
+  it('crashes into the fence', () => {
+    const arena = t.arena!;
+    const base = createSnapshot(cfg, t);
+    const out: Vec3 = [arena.centre[0] + arena.radius, arena.centre[1] + 15, arena.centre[2]];
+    const s = step(
+      {
+        ...base,
+        mission: { ...base.mission, phase: 'cruise' },
+        drone: { ...base.drone, pos: out, wp: 1 },
+      },
+      t,
+      0.05,
+    );
+    expect(s.mission.crashCause).toBe('fence');
+  });
+
   it('counts gates flown through and reports them on the instrument line', () => {
     const start = createSnapshot(cfg, t);
     const clear: Snapshot = {

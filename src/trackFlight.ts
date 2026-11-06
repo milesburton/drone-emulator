@@ -1,7 +1,7 @@
 import { groundBeneath, MAX_CLIMB, MAX_DESCENT, CLIMB_RESPONSE } from './altitude';
 import { routeEnergy } from './mission';
 import type { Terrain } from './terrain';
-import { trackFor, type Gate, type Track } from './track';
+import { trackFor, type Gate, type Obstacle, type Track } from './track';
 import type { Config, Vec3 } from './types';
 
 /** Speed through the air on the track, m/s; slower than a sortie so a 24 m gate and tight corners are flyable. */
@@ -10,6 +10,8 @@ export const TRACK_SPEED = 20;
 export const TRACK_FLOOR = 5;
 /** Height above the pad that a track takeoff climbs to before heading for the first gate. */
 export const TRACK_TAKEOFF = 10;
+/** How far past the start/finish gate the drone flies before turning for the pad. */
+const EXIT_RUN = 100;
 /** Most laps one sortie plans, however little a lap costs. */
 export const MAX_LAPS = 10;
 /** Charge a track sortie may plan to use, as for sorties. */
@@ -38,12 +40,23 @@ export const trackRoute = (terrain: Terrain, seed: number): readonly Vec3[] => {
   const gates = loop(track);
   const laps = Array.from({ length: lapsFor(track, terrain) }, () => gates).flat();
   // The first gate again at the end, so the last lap is timed like the others.
-  return [track.start, ...laps, gates[0]];
+  const first = track.gates[0];
+  // Then well clear of the start/finish gate, so the turn back to the pad does not clip its frame.
+  const exit: Vec3 = [
+    first.pos[0] + Math.cos(first.yaw) * EXIT_RUN,
+    first.pos[1],
+    first.pos[2] + Math.sin(first.yaw) * EXIT_RUN,
+  ];
+  return [track.start, ...laps, gates[0], exit];
 };
 
 /** Which gate and lap a route waypoint (index into `trackRoute`) is; null for the pad. Gate 0 is the start/finish. */
-export const gateAt = (wp: number, gates: number): { gate: number; lap: number } | null =>
-  wp <= 0 ? null : { gate: (wp - 1) % gates, lap: Math.floor((wp - 1) / gates) };
+export const gateAt = (
+  wp: number,
+  gates: number,
+  total = Infinity,
+): { gate: number; lap: number } | null =>
+  wp <= 0 || wp >= total - 1 ? null : { gate: (wp - 1) % gates, lap: Math.floor((wp - 1) / gates) };
 
 /** Eases altitude towards the gate's own height, never closer to the ground than the track floor. */
 export const nextTrackAltitude = (
@@ -59,18 +72,78 @@ export const nextTrackAltitude = (
   return Math.max(eased, Math.max(groundBeneath(terrain, x, z), terrain.waterLevel) + TRACK_FLOOR);
 };
 
-/** How far ahead along a gate's axis the autopilot aims, metres: longer lines up sooner but cuts across further. */
-export const LEAD = 40;
+/** The line-up point sits this far before a gate on its axis, metres. */
+export const APPROACH = 55;
+/** Closer than this to the axis, and the drone can pursue the gate's centre straight; further out it lines up first. */
+const ALIGNED = 12;
+/** From this far out (along the axis), the drone has time to line up first. */
+const LINE_UP_FROM = APPROACH - 8;
 
 /**
- * Where to steer for `gate` from `from`: a point on the gate's axis `LEAD` metres ahead of the
- * drone's own position along it, so the drone eases onto the axis and crosses square to the
- * opening. Past the gate's plane (a miss) it aims back before the gate to come round again.
+ * Where to steer for `gate` from `from`. A drone well off the gate's axis and still far out heads
+ * for a line-up point on the axis; once it is close to the axis (or near the gate) it pursues the
+ * centre of the opening, which brings it through square and centred. Past the gate's plane (a
+ * miss) it heads back for the line-up point to come round again.
  */
 export const aimAt = (gate: Gate, from: Vec3): Vec3 => {
   const fx = Math.cos(gate.yaw);
   const fz = Math.sin(gate.yaw);
-  const along = (from[0] - gate.pos[0]) * fx + (from[2] - gate.pos[2]) * fz;
-  const k = along > 0 ? -LEAD : along + LEAD;
-  return [gate.pos[0] + fx * k, gate.pos[1], gate.pos[2] + fz * k];
+  const dx = from[0] - gate.pos[0];
+  const dz = from[2] - gate.pos[2];
+  const along = dx * fx + dz * fz;
+  const lat = -dx * fz + dz * fx;
+  const lineUp: Vec3 = [gate.pos[0] - fx * APPROACH, gate.pos[1], gate.pos[2] - fz * APPROACH];
+  return along > 0 || (along < -LINE_UP_FROM && Math.abs(lat) > ALIGNED) ? lineUp : gate.pos;
 };
+
+/** How far ahead the autopilot looks for obstacles, metres, and how much room it wants beside one. */
+const LOOK = 90;
+const ROOM = 10;
+const MAX_SWERVE = 1;
+
+/**
+ * Bends `course` away from any obstacle ahead that it would pass too close to: the nearer and
+ * more squarely ahead, the harder the swerve, always away from the side the obstacle is on.
+ */
+export const steerClear = (
+  course: number,
+  from: Vec3,
+  obstacles: readonly Obstacle[],
+  reach: number,
+): number => {
+  const ux = Math.cos(course);
+  const uz = Math.sin(course);
+  const swerve = obstacles.reduce((sum, o) => {
+    const rx = o.pos[0] - from[0];
+    const rz = o.pos[2] - from[2];
+    const ahead = rx * ux + rz * uz;
+    const side = -rx * uz + rz * ux;
+    const need = o.radius + reach + ROOM;
+    if (ahead <= 0 || ahead > LOOK || Math.abs(side) >= need) return sum;
+    const weight = (1 - Math.abs(side) / need) * (1 - 0.5 * (ahead / LOOK));
+    return sum - Math.sign(side || 1) * weight * 1.4;
+  }, 0);
+  return course + Math.max(-MAX_SWERVE, Math.min(MAX_SWERVE, swerve));
+};
+
+/**
+ * Everything to steer round, as columns: the obstacles and the posts of every gate except the one
+ * being flown through (`through`, a gate index, or null when heading for the pad).
+ */
+export const avoidables = (track: Track, through: number | null): readonly Obstacle[] => [
+  ...track.obstacles,
+  ...track.gates.flatMap((g, i): readonly Obstacle[] =>
+    i === through
+      ? []
+      : [-1, 1].map((side): Obstacle => ({
+          kind: 'pole',
+          pos: [
+            g.pos[0] - Math.sin(g.yaw) * side * (g.width / 2 + 1),
+            g.pos[1],
+            g.pos[2] + Math.cos(g.yaw) * side * (g.width / 2 + 1),
+          ],
+          radius: 1.5,
+          height: 0,
+        })),
+  ),
+];

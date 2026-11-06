@@ -48,7 +48,7 @@ export interface Readouts {
 /** Track progress: the gate being flown to, the lap, gates through and missed, and the best lap. */
 export const trackLine = (s: Snapshot, terrain: Terrain): string => {
   const n = trackFor(terrain, s.config.seed).gates.length;
-  const at = gateAt(s.drone.wp, n);
+  const at = gateAt(s.drone.wp, n, s.waypoints.length);
   const m = s.mission;
   const best = m.bestLap === null ? '' : ` · best ${m.bestLap.toFixed(1)} s`;
   return `${at === null ? 'pad' : `gate ${at.gate + 1}/${n}`} · ${m.laps} laps · ${m.passed} through, ${m.missed} missed${best}`;

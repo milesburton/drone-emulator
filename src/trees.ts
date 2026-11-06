@@ -64,7 +64,11 @@ export const placeTrees = (terrain: Terrain, pad: Vec3 | null): readonly Tree[] 
         slopeAt(terrain, x, z) < MAX_SLOPE &&
         terrain.routes.roads.every((r) => distanceTo(r, x, z) > ROAD_HALF_WIDTH + ROAD_MARGIN) &&
         (!terrain.routes.river || distanceTo(terrain.routes.river, x, z) > RIVER_MARGIN) &&
-        (!pad || Math.hypot(x - pad[0], z - pad[2]) > PAD_CLEAR);
+        (!pad || Math.hypot(x - pad[0], z - pad[2]) > PAD_CLEAR) &&
+        // Nothing grows inside the fence.
+        (!terrain.arena ||
+          Math.hypot(x - terrain.arena.centre[0], z - terrain.arena.centre[2]) >
+            terrain.arena.radius + 30);
       if (!clear) return [];
       const kind: TreeKind = rand() < 0.5 + 0.4 * patch ? 'conifer' : 'broadleaf';
       return [

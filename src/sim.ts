@@ -25,6 +25,8 @@ import {
   aimAt,
   gateAt,
   nextTrackAltitude,
+  steerClear,
+  avoidables,
   speedFor,
   TRACK_TAKEOFF,
   trackPad,
@@ -32,8 +34,8 @@ import {
 } from './trackFlight';
 import { trackFor } from './track';
 import { crossing, hitsGate, hitsObstacle, type GateResult } from './gates';
-import { groundBeneath } from './altitude';
-import { createTerrain, terrainKey, type Terrain } from './terrain';
+import { FOOTPRINT, groundBeneath } from './altitude';
+import { createTerrain, FENCE_HEIGHT, terrainKey, type Terrain } from './terrain';
 import type { Config, Crash, CrashCause, Mission, Snapshot, Vec2, Vec3 } from './types';
 import { retarget, riverWaypoints } from './waypoints';
 import { clearStorm, createWeather, gustAt, startStorm, stepWeather } from './weather';
@@ -143,11 +145,18 @@ const holding = (s: Snapshot, pos: Vec3, heading: number, arrived = false): Moti
   arrived,
 });
 
+/** Index of the gate being flown to, or null when heading for the pad (or not on a track). */
+const gateIndex = (s: Snapshot, terrain: Terrain): number | null => {
+  if (s.config.mode !== 'track') return null;
+  const at = gateAt(s.drone.wp, trackFor(terrain, s.config.seed).gates.length, s.waypoints.length);
+  return at === null ? null : at.gate;
+};
+
 /** The gate the drone is flying to, or null when heading for the pad (or not on a track). */
 const gateTarget = (s: Snapshot, terrain: Terrain) => {
   if (s.config.mode !== 'track') return null;
   const gates = trackFor(terrain, s.config.seed).gates;
-  const at = gateAt(s.drone.wp, gates.length);
+  const at = gateAt(s.drone.wp, gates.length, s.waypoints.length);
   return at === null ? null : gates[at.gate];
 };
 
@@ -168,7 +177,15 @@ const fly = (s: Snapshot, terrain: Terrain, dt: number, target: Vec3): Motion =>
   const speed = speedFor(cfg);
   const gust = gustAt(s.time, s.weather.rain);
   // On a track the autopilot points into the wind by the crab angle that holds its line (it is told the wind).
-  const course = Math.atan2(dz, dx);
+  const course =
+    cfg.mode === 'track'
+      ? steerClear(
+          Math.atan2(dz, dx),
+          s.drone.pos,
+          avoidables(trackFor(terrain, cfg.seed), gateIndex(s, terrain)),
+          FOOTPRINT,
+        )
+      : Math.atan2(dz, dx);
   const crab =
     cfg.mode === 'track'
       ? Math.asin(
@@ -380,7 +397,11 @@ const tally = (m: Mission, gate: GateResult | undefined): Mission =>
 const timeLap = (s: Snapshot, terrain: Terrain): Mission => {
   const m = s.mission;
   if (s.config.mode !== 'track') return m;
-  const here = gateAt(s.drone.wp, trackFor(terrain, s.config.seed).gates.length);
+  const here = gateAt(
+    s.drone.wp,
+    trackFor(terrain, s.config.seed).gates.length,
+    s.waypoints.length,
+  );
   if (here === null || here.gate !== 0) return m;
   if (m.lapStart === null) return { ...m, lapStart: s.time };
   const lap = s.time - m.lapStart;
@@ -456,6 +477,15 @@ const strikeCause = (
 ): CrashCause | null => {
   const { pos } = s.drone;
   if (aloft && hitsCraft(pos, s.config.seed, s.time, terrain)) return 'craft';
+  const arena = terrain.arena;
+  if (
+    aloft &&
+    arena &&
+    Math.hypot(pos[0] - arena.centre[0], pos[2] - arena.centre[2]) > arena.radius - FOOTPRINT &&
+    pos[1] < arena.centre[1] + FENCE_HEIGHT
+  ) {
+    return 'fence';
+  }
   if (aloft && s.config.mode === 'track') {
     const track = trackFor(terrain, s.config.seed);
     if (track.obstacles.some((o) => hitsObstacle(o, pos))) return 'obstacle';

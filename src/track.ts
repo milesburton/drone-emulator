@@ -71,8 +71,9 @@ export const OBSTACLE_MARGIN = 20;
 /** Loop radius range, metres, and the arena it sits in. */
 const LOOP_RADIUS: readonly [number, number] = [150, 230];
 export const ARENA_RADIUS = 300;
-/** Distance before the first gate that the drone starts from. */
+/** The pad is this far before the first gate and this far to one side, so the drone never has to fly back through the gate to land. */
 const START_RUN = 70;
+const START_SIDE = 80;
 const OBSTACLES = 14;
 const ATTEMPTS = 60;
 const SALT = 0x1f83d9ab;
@@ -192,7 +193,11 @@ export const generateTrack = (terrain: Terrain, centre: Vec3, seed: number): Tra
   const run: Vec2 = [Math.cos(first.yaw), Math.sin(first.yaw)];
   return {
     centre,
-    start: seat(terrain, first.pos[0] - run[0] * START_RUN, first.pos[2] - run[1] * START_RUN),
+    start: seat(
+      terrain,
+      first.pos[0] - run[0] * START_RUN - run[1] * START_SIDE,
+      first.pos[2] - run[1] * START_RUN + run[0] * START_SIDE,
+    ),
     gates,
     obstacles,
   };
@@ -239,6 +244,7 @@ const usableArena = (terrain: Terrain, x: number, z: number, relief: number): bo
  * strictest standard any candidate meets; failing all, the flattest candidate.
  */
 export const findArena = (terrain: Terrain, seed: number): Vec3 => {
+  if (terrain.arena) return terrain.arena.centre;
   const half = terrain.cfg.worldSize / 2;
   const [[cx, cz]] = ranges(seed ^ ARENA_SALT, 2, -0.25 * half, 0.25 * half);
   const limit = 0.4 * terrain.cfg.worldSize - ARENA_RADIUS * 0.5;

@@ -2,6 +2,7 @@ import { createNoise2D } from 'simplex-noise';
 import { characterFor, profileOf } from './biome';
 import { toRandomFn } from './rng';
 import { searchPad } from './pad';
+import { findArena } from './track';
 import { createRoutes, distanceTo, pointAt, tangentAt, type Route, type Routes } from './routes';
 import type { Config, Vec3 } from './types';
 
@@ -10,13 +11,31 @@ export interface Terrain {
   readonly waterLevel: number;
   readonly cfg: Config;
   readonly routes: Routes;
-  /** Launch pad the ground was levelled for; null only for hand-built terrains. */
+  /** Launch pad the ground was levelled for; null only for hand-built terrains and in track mode. */
   readonly pad: Vec3 | null;
+  /** Track mode: the flat, fenced ground the track is laid out on; null in sortie mode. */
+  readonly arena: Arena | null;
   /** Height of the road surface at `s` along `road`: smooth, and clear of the ground beneath it. */
   readonly deckAt: (road: Route, s: number) => number;
   /** Half-size of the rendered land; far larger than the playable world so it reaches the fog. */
   readonly extent: number;
 }
+
+/** Flat ground for the FPV track: level to `ARENA_FLAT`, easing back to the natural land by `ARENA_FLAT + ARENA_BLEND`. */
+export interface Arena {
+  /** Centre of the arena, at the level of its floor. */
+  readonly centre: Vec3;
+  /** Radius of the fence, metres. */
+  readonly radius: number;
+}
+
+/** The fence stands this far from the arena's centre, and is this tall. */
+export const FENCE_RADIUS = 390;
+export const FENCE_HEIGHT = 60;
+const ARENA_FLAT = 430;
+const ARENA_BLEND = 140;
+/** The floor is at least this far above the water. */
+const ARENA_ABOVE_WATER = 4;
 
 export type Rgb = readonly [number, number, number];
 
@@ -43,6 +62,7 @@ export const terrainKey = (cfg: Config): string =>
     cfg.lakes,
     cfg.river,
     cfg.roads,
+    cfg.mode,
   ].join(':');
 
 const HILL_FREQUENCY = 1 / 380;
@@ -179,7 +199,8 @@ const alongOf = (road: Route, x: number, z: number): number => (road.along === '
 export const createTerrain = (cfg: Config): Terrain => {
   const hills = createNoise2D(toRandomFn(cfg.seed));
   const lakeNoise = createNoise2D(toRandomFn(cfg.seed ^ 0x9e3779b9));
-  const routes = createRoutes(cfg);
+  // An arena has no room for roads or a river, so a track map is built without them.
+  const routes = createRoutes(cfg.mode === 'track' ? { ...cfg, roads: false, river: false } : cfg);
   const character = characterFor(cfg);
   const relief = cfg.terrainScale * character.relief;
   const channelHalfWidth = character.riverHalfWidth;
@@ -214,7 +235,7 @@ export const createTerrain = (cfg: Config): Terrain => {
 
   /** Land, roads and river, with the ground levelled under `pad` when there is one. */
   const heightFor =
-    (pad: Vec3 | null) =>
+    (pad: Vec3 | null, arena: Arena | null) =>
     (x: number, z: number): number => {
       const base = baseAt(x, z);
       const nearest = routes.roads.reduce<{ road: Route | null; distance: number }>(
@@ -253,7 +274,7 @@ export const createTerrain = (cfg: Config): Terrain => {
               smoothstep(channelHalfWidth, bankWidth, distance),
             ))(distanceTo(routes.river, x, z))
         : graded;
-      return pad
+      const levelled = pad
         ? lerp(
             natural,
             pad[1],
@@ -261,19 +282,40 @@ export const createTerrain = (cfg: Config): Terrain => {
               (1 - roadBlend),
           )
         : natural;
+      return arena
+        ? lerp(
+            levelled,
+            arena.centre[1],
+            1 -
+              smoothstep(
+                ARENA_FLAT,
+                ARENA_FLAT + ARENA_BLEND,
+                Math.hypot(x - arena.centre[0], z - arena.centre[2]),
+              ),
+          )
+        : levelled;
     };
 
   const draft: Terrain = {
-    heightAt: heightFor(null),
+    heightAt: heightFor(null, null),
     waterLevel,
     cfg,
     routes,
     extent,
     pad: null,
+    arena: null,
     deckAt,
   };
+  if (cfg.mode === 'track') {
+    const [x, y, z] = findArena(draft, cfg.seed);
+    const arena: Arena = {
+      centre: [x, Math.max(y, waterLevel + ARENA_ABOVE_WATER), z],
+      radius: FENCE_RADIUS,
+    };
+    return { ...draft, heightAt: heightFor(null, arena), arena };
+  }
   const pad = searchPad(draft, cfg.seed);
-  return { ...draft, heightAt: heightFor(pad), pad };
+  return { ...draft, heightAt: heightFor(pad, null), pad };
 };
 
 /**

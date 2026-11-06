@@ -13,6 +13,7 @@ import {
   MIN_SPACING,
   OBSTACLE_MARGIN,
   findArena,
+  trackFor,
   generateTrack,
 } from './track';
 
@@ -84,12 +85,16 @@ describe('track generator', () => {
     );
   });
 
-  it('starts the drone on the ground, short of and facing the first gate', () => {
+  it('starts the drone on the ground, short of the first gate and off to one side of its line', () => {
     tracks.slice(0, 40).forEach(({ start, gates }) => {
       expect(start[1]).toBeCloseTo(terrain.heightAt(start[0], start[2]), 6);
       const [g] = gates;
-      const toGate = Math.atan2(g.pos[2] - start[2], g.pos[0] - start[0]);
-      expect(Math.abs(wrap(toGate - g.yaw))).toBeLessThan(0.01);
+      const dx = start[0] - g.pos[0];
+      const dz = start[2] - g.pos[2];
+      const along = dx * Math.cos(g.yaw) + dz * Math.sin(g.yaw);
+      const side = -dx * Math.sin(g.yaw) + dz * Math.cos(g.yaw);
+      expect(along).toBeCloseTo(-70, 3);
+      expect(Math.abs(side)).toBeCloseTo(80, 3);
     });
   });
 });
@@ -109,5 +114,37 @@ describe('arena search', () => {
 
   it('is deterministic', () => {
     expect(findArena(terrain, 5)).toEqual(findArena(terrain, 5));
+  });
+});
+
+describe('flat arena', () => {
+  const cfg = { ...defaultConfig, mode: 'track' as const };
+  it.each([1, 7, 1337, 31337])(
+    'is level inside the fence and fenced round the track (seed %i)',
+    (seed) => {
+      const t = createTerrain({ ...cfg, seed });
+      const { arena } = t;
+      expect(arena).not.toBeNull();
+      const [cx, cy, cz] = arena!.centre;
+      expect(cy).toBeGreaterThan(t.waterLevel);
+      [0, 1, 2, 3, 4, 5, 6, 7].forEach((k) => {
+        const a = (k / 8) * Math.PI * 2;
+        [0.2, 0.6, 1].forEach((f) =>
+          expect(
+            t.heightAt(cx + Math.cos(a) * arena!.radius * f, cz + Math.sin(a) * arena!.radius * f),
+          ).toBeCloseTo(cy, 6),
+        );
+      });
+      const track = trackFor(t, seed);
+      [...track.gates.map((g) => g.pos), ...track.obstacles.map((o) => o.pos), track.start].forEach(
+        ([x, , z]) => expect(Math.hypot(x - cx, z - cz)).toBeLessThan(arena!.radius - 20),
+      );
+    },
+  );
+  it('has no arena in sortie mode, and no roads or river in track mode', () => {
+    expect(createTerrain(defaultConfig).arena).toBeNull();
+    const t = createTerrain(cfg);
+    expect(t.routes.roads).toHaveLength(0);
+    expect(t.routes.river).toBeNull();
   });
 });

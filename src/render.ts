@@ -457,7 +457,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
       disposeObject(m);
     });
     if (on) {
-      trackGroup.add(buildTrack(trackFor(terrain, s.config.seed), terrain.heightAt));
+      trackGroup.add(buildTrack(trackFor(terrain, s.config.seed), terrain.heightAt, terrain.arena));
     }
     cache.trackKey = key;
     cache.trackTerrain = terrain;

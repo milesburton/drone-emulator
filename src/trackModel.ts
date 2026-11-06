@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import type { Arena } from './terrain';
+import { FENCE_HEIGHT } from './terrain';
 import type { Gate, Obstacle, Track } from './track';
 
 const trim = (hex: number): THREE.MeshLambertMaterial =>
@@ -133,11 +135,58 @@ export const buildObstacle = (o: Obstacle): THREE.Group => {
 };
 
 /** The whole track: every gate and obstacle, and a faint line through the gates in flying order. */
+/** A mesh fence round the arena: posts, rails and a faint netting, standing on the arena floor. */
+export const buildFence = (arena: Arena): THREE.Group => {
+  const group = new THREE.Group();
+  const [cx, cy, cz] = arena.centre;
+  const net = new THREE.Mesh(
+    new THREE.CylinderGeometry(arena.radius, arena.radius, FENCE_HEIGHT, 128, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0xdfe8f0,
+      transparent: true,
+      opacity: 0.16,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }),
+  );
+  net.position.set(cx, cy + FENCE_HEIGHT / 2, cz);
+  group.add(net);
+  const metal = new THREE.MeshLambertMaterial({ color: 0x8a949e });
+  [0.02, 0.5, 1].forEach((f) => {
+    const rail = new THREE.Mesh(new THREE.TorusGeometry(arena.radius, 0.5, 6, 160), metal);
+    rail.rotation.x = Math.PI / 2;
+    rail.position.set(cx, cy + f * FENCE_HEIGHT, cz);
+    group.add(rail);
+  });
+  const count = 96;
+  const posts = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(1.4, FENCE_HEIGHT, 1.4),
+    metal,
+    count,
+  );
+  const m = new THREE.Matrix4();
+  Array.from({ length: count }).forEach((_, i) => {
+    const a = (i / count) * Math.PI * 2;
+    posts.setMatrixAt(
+      i,
+      m.makeTranslation(
+        cx + Math.cos(a) * arena.radius,
+        cy + FENCE_HEIGHT / 2,
+        cz + Math.sin(a) * arena.radius,
+      ),
+    );
+  });
+  group.add(posts);
+  return group;
+};
+
 export const buildTrack = (
   track: Track,
   groundAt: (x: number, z: number) => number,
+  arena: Arena | null = null,
 ): THREE.Group => {
   const group = new THREE.Group();
+  if (arena) group.add(buildFence(arena));
   track.gates.forEach((g, i) => group.add(buildGate(g, groundAt(g.pos[0], g.pos[2]), i === 0)));
   track.obstacles.forEach((o) => group.add(buildObstacle(o)));
   const loop = [...track.gates, track.gates[0]].map((g) => new THREE.Vector3(...g.pos));
