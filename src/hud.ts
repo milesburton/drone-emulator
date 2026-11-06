@@ -1,4 +1,4 @@
-import { runFor } from './forestRun';
+import { goalIndex, runFor } from './forestRun';
 import { trackFor } from './track';
 import { gateAt } from './trackFlight';
 import { pressureOf, windBiasOf } from './ekf';
@@ -59,7 +59,7 @@ export const trackLine = (s: Snapshot, terrain: Terrain): string => {
 export const runLine = (s: Snapshot, terrain: Terrain): string => {
   const run = runFor(terrain, s.config.seed);
   const [x, , z] = s.drone.pos;
-  const out = s.drone.wp === 1;
+  const out = s.drone.wp !== 0 && s.drone.wp <= goalIndex(run);
   const target = out ? run.goal : run.start;
   const m = s.mission;
   const best = m.bestLap === null ? '' : ` · best ${m.bestLap.toFixed(1)} s`;

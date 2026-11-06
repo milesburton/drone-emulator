@@ -1,4 +1,4 @@
-import { FOOTPRINT } from './altitude';
+import { AIRFRAME_RADIUS as FOOTPRINT } from './airframe';
 import { runFor } from './forestRun';
 import { toRandomFn } from './rng';
 import type { Terrain } from './terrain';
@@ -33,7 +33,7 @@ const DEER = 10;
 const BIRDS = 14;
 /** Where along the line from pad to goal animals cross, as fractions of its length. */
 const ALONG: readonly [number, number] = [0.14, 0.9];
-const HALF_PATH: readonly [number, number] = [120, 210];
+const HALF_PATH: readonly [number, number] = [45, 85];
 const lerp = ([a, b]: readonly [number, number], t: number): number => a + (b - a) * t;
 
 /** The forest's animals for this terrain and seed: pure in both. */
@@ -48,7 +48,7 @@ const grow = (terrain: Terrain, seed: number): readonly Animal[] => {
   return Array.from({ length: DEER + BIRDS }, (_, k): Animal => {
     const kind: AnimalKind = k < DEER ? 'deer' : 'bird';
     const along = lerp(ALONG, rand()) * length;
-    const jitter = (rand() - 0.5) * 60;
+    const jitter = (rand() - 0.5) * 24;
     // Cross the line at a steep angle, so the animal moves through the corridor rather than along it.
     const angle = Math.atan2(uz, ux) + Math.PI / 2 + (rand() - 0.5) * 0.7;
     const half = lerp(HALF_PATH, rand());
@@ -62,16 +62,16 @@ const grow = (terrain: Terrain, seed: number): readonly Animal[] => {
       cx - Math.cos(angle) * half,
       cz - Math.sin(angle) * half,
     ];
-    const speed = kind === 'deer' ? lerp([7, 12], rand()) : lerp([12, 20], rand());
+    const speed = kind === 'deer' ? lerp([6, 10], rand()) : lerp([10, 16], rand());
     return {
       kind,
       from,
       to,
       speed,
       phase: rand() * 2 * half * 2,
-      radius: kind === 'deer' ? 2.4 : 2.6,
-      // A deer's back is just over a metre up; birds fly through the band the drone cruises in.
-      height: kind === 'deer' ? 1.3 : lerp([5, 16], rand()),
+      radius: kind === 'deer' ? 1.1 : 0.7,
+      // A deer's back is under a metre up; birds fly through the band the drone cruises in.
+      height: kind === 'deer' ? 0.7 : lerp([1.5, 6], rand()),
     };
   });
 };

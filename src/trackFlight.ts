@@ -1,18 +1,19 @@
+import { AIRFRAME_RADIUS } from './airframe';
 import { groundBeneath, MAX_CLIMB, MAX_DESCENT, CLIMB_RESPONSE } from './altitude';
 import { routeEnergy } from './mission';
 import type { Terrain } from './terrain';
 import { RUN_SPEED, RUN_TURN_RATE } from './forestRun';
-import { trackFor, type Gate, type Obstacle, type Track } from './track';
+import { APPROACH, trackFor, type Gate, type Obstacle, type Track } from './track';
 import type { Config, Vec3 } from './types';
 
-/** Speed through the air on the track, m/s (about 160 km/h): FPV racers are fast, and a quick course is the point. */
-export const TRACK_SPEED = 45;
-/** Fastest the drone turns on the track, radians per second: a racer corners harder than a survey drone, about a 19 m radius at speed. */
-export const TRACK_TURN_RATE = 2.4;
+/** Speed through the air on the track, m/s (about 100 km/h): quick for a 3 m quad on a course this tight. */
+export const TRACK_SPEED = 28;
+/** Fastest the drone turns on the track, radians per second: a racer corners harder than a survey drone, about a 9 m radius at speed (`TRACK_TURN_RADIUS`). */
+export const TRACK_TURN_RATE = 3.2;
 /** Closest the airframe's footprint may come to the ground on the track, metres. */
-export const TRACK_FLOOR = 5;
+export const TRACK_FLOOR = 1.6;
 /** Height above the pad that a track takeoff climbs to before heading for the first gate. */
-export const TRACK_TAKEOFF = 10;
+export const TRACK_TAKEOFF = 3.5;
 /** Most laps one sortie plans, however little a lap costs. */
 export const MAX_LAPS = 10;
 /** Charge a track sortie may plan to use, as for sorties. */
@@ -69,15 +70,17 @@ export const nextTrackAltitude = (
 ): number => {
   const wanted = (targetY - y) * Math.min(1, dt * CLIMB_RESPONSE);
   const eased = y + Math.max(-MAX_DESCENT * dt, Math.min(MAX_CLIMB * dt, wanted));
-  return Math.max(eased, Math.max(groundBeneath(terrain, x, z), terrain.waterLevel) + TRACK_FLOOR);
+  return Math.max(
+    eased,
+    Math.max(groundBeneath(terrain, x, z, AIRFRAME_RADIUS), terrain.waterLevel) + TRACK_FLOOR,
+  );
 };
 
 /** The line-up point sits this far before a gate on its axis, metres. */
-export const APPROACH = 55;
 /** Closer than this to the axis, and the drone can pursue the gate's centre straight; further out it lines up first. */
-const ALIGNED = 12;
+const ALIGNED = 2.5;
 /** From this far out (along the axis), the drone has time to line up first. */
-const LINE_UP_FROM = APPROACH - 8;
+const LINE_UP_FROM = APPROACH - 3;
 
 /**
  * Where to steer for `gate` from `from`. A drone well off the gate's axis and still far out heads
@@ -97,8 +100,8 @@ export const aimAt = (gate: Gate, from: Vec3): Vec3 => {
 };
 
 /** How far ahead the autopilot looks for obstacles, metres, and how much room it wants beside one. */
-const LOOK = 90;
-const ROOM = 10;
+const LOOK = 35;
+const ROOM = 3;
 const MAX_SWERVE = 1;
 
 /**

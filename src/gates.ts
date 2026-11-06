@@ -1,12 +1,14 @@
-import { FOOTPRINT } from './altitude';
+import { AIRFRAME_RADIUS as FOOTPRINT, AIRFRAME_REACH } from './airframe';
 import type { Branch } from './forestRun';
 import type { Gate, Obstacle, SkyObstacle } from './track';
 import type { Vec3 } from './types';
 
 /** Thickness of a gate's frame members, metres; matches the model. */
-export const FRAME = 1.8;
+export const FRAME = 0.6;
 /** Vertical reach of the airframe about its centre: skids below, rotors above. */
-const REACH_V = 3;
+const REACH_V = AIRFRAME_REACH;
+/** Tube radius of a hoop or arch, metres. */
+const RING_TUBE = 0.25;
 /** The opening of a `dive` gate reaches this much higher than the others. */
 const DIVE_TOP = 1.6;
 /** A crossing this far off centre (in gate widths) still counts as a miss; further out is not near the gate. */
@@ -65,13 +67,13 @@ export const crossing = (gate: Gate, a: Vec3, b: Vec3): GateResult | null => {
   return Math.abs(at.lat) <= gate.width * MISS_BAND ? 'miss' : null;
 };
 
-/** The airframe's cross-section (14 m wide, 6 m deep) overlaps a ring of tube radius 0.7 about the centre. */
+/** The airframe's cross-section (about 3 m wide and 1 m deep) overlaps a ring of tube radius 0.25 about the centre. */
 const ring = (half: number, side: number, up: number): boolean =>
-  Math.hypot(side + FOOTPRINT, up + REACH_V) > half - 0.7 &&
-  Math.hypot(Math.max(side - FOOTPRINT, 0), Math.max(up - REACH_V, 0)) < half + 0.7;
+  Math.hypot(side + FOOTPRINT, up + REACH_V) > half - RING_TUBE &&
+  Math.hypot(Math.max(side - FOOTPRINT, 0), Math.max(up - REACH_V, 0)) < half + RING_TUBE;
 
 /**
- * True when the airframe, a 14 m disc about 6 m deep, touches the gate's frame at `pos`. The
+ * True when the airframe, a 3 m disc about 1 m deep, touches the gate's frame at `pos`. The
  * posts and top bar are boxes; hoops and arches are rings tested at the corner of the airframe that reaches furthest.
  */
 export const hitsGate = (gate: Gate, pos: Vec3): boolean => {

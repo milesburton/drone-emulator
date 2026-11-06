@@ -35,9 +35,19 @@ import {
 } from './trackFlight';
 import { trackFor } from './track';
 import { animalAt, animalsFor, hitsAnimal } from './animals';
-import { near, nextRunAltitude, planCourse, runFor, strikes } from './forestRun';
+import { tunnelCarrot, tunnelHold } from './tunnels';
+import {
+  goalIndex,
+  near,
+  nextRunAltitude,
+  planCourse,
+  runFor,
+  runRoute,
+  strikes,
+} from './forestRun';
 import { crossing, hitsGate, hitsObstacle, hitsSky, type GateResult } from './gates';
-import { FOOTPRINT, groundBeneath } from './altitude';
+import { AIRFRAME_RADIUS, footprintFor } from './airframe';
+import { groundBeneath } from './altitude';
 import { createTerrain, FENCE_HEIGHT, terrainKey, type Terrain } from './terrain';
 import type { Config, Crash, CrashCause, Mission, Snapshot, Vec2, Vec3 } from './types';
 import { retarget, riverWaypoints } from './waypoints';
@@ -96,7 +106,7 @@ const routeFor = (
   cfg.mode === 'track'
     ? [trackRoute(terrain, cfg.seed), rng]
     : cfg.mode === 'run'
-      ? [[home, runFor(terrain, cfg.seed).goal], rng]
+      ? [runRoute(runFor(terrain, cfg.seed)), rng]
       : planRoute(cfg, terrain, rng, home, AIR_SPEED);
 
 const startEkf = (pos: Vec3) =>
@@ -184,14 +194,19 @@ const fly = (s: Snapshot, terrain: Terrain, dt: number, target: Vec3): Motion =>
   // On a track the autopilot points into the wind by the crab angle that holds its line (it is told the wind).
   // On a forest run the trunks and limbs around the drone are what it steers through.
   const around = cfg.mode === 'run' ? near(runFor(terrain, cfg.seed), px, pz, speed * 2.2) : null;
-  const toward = Math.atan2(dz, dx);
+  // Lining up for a tunnel, or inside one, the drone is drawn onto its axis rather than just towards the far waypoint.
+  const carrot =
+    cfg.mode === 'run'
+      ? tunnelCarrot(runFor(terrain, cfg.seed).tunnels, s.drone.pos, s.drone.heading)
+      : null;
+  const toward = carrot ? Math.atan2(carrot[2] - pz, carrot[0] - px) : Math.atan2(dz, dx);
   const steered =
     cfg.mode === 'track'
       ? steerClear(
           toward,
           s.drone.pos,
           avoidables(trackFor(terrain, cfg.seed), gateIndex(s, terrain)),
-          FOOTPRINT,
+          AIRFRAME_RADIUS,
         )
       : around
         ? planCourse(
@@ -204,6 +219,7 @@ const fly = (s: Snapshot, terrain: Terrain, dt: number, target: Vec3): Motion =>
             animalsFor(terrain, cfg.seed),
             s.time,
             around,
+            runFor(terrain, cfg.seed).tunnels,
           )
         : toward;
   const course = steered;
@@ -232,7 +248,15 @@ const fly = (s: Snapshot, terrain: Terrain, dt: number, target: Vec3): Motion =>
     cfg.mode === 'track'
       ? nextTrackAltitude(terrain, py, nx, nz, target[1], dt)
       : cfg.mode === 'run'
-        ? nextRunAltitude(terrain, py, nx, nz, heading, dt)
+        ? nextRunAltitude(
+            terrain,
+            py,
+            nx,
+            nz,
+            heading,
+            tunnelHold(runFor(terrain, cfg.seed).tunnels, s.drone.pos, s.drone.heading),
+            dt,
+          )
         : nextAltitude(terrain, py, nx, nz, heading, dt);
   const pos: Vec3 = [nx, ny, nz];
   const through = cfg.mode === 'track' ? gateFlown(s, terrain, pos) : undefined;
@@ -251,7 +275,8 @@ const takeOff = (s: Snapshot, terrain: Terrain, dt: number): Motion => {
   const [px, py, pz] = s.drone.pos;
   const top =
     s.config.mode === 'track'
-      ? Math.max(groundBeneath(terrain, px, pz), terrain.waterLevel) + TRACK_TAKEOFF
+      ? Math.max(groundBeneath(terrain, px, pz, AIRFRAME_RADIUS), terrain.waterLevel) +
+        TRACK_TAKEOFF
       : s.mission.home[1] + CLEARANCE;
   const next = Math.min(top, py + TAKEOFF_CLIMB * dt);
   return holding(s, [px, next, pz], s.drone.heading, next >= top);
@@ -420,8 +445,8 @@ const tally = (m: Mission, gate: GateResult | undefined): Mission =>
 const timeLap = (s: Snapshot, terrain: Terrain): Mission => {
   const m = s.mission;
   if (s.config.mode === 'run') {
-    // Reaching the goal (the first waypoint) closes a run, timed from take-off.
-    if (s.drone.wp !== 1 || m.lapStart === null) return m;
+    // Reaching the goal closes a run, timed from take-off.
+    if (s.drone.wp !== goalIndex(runFor(terrain, s.config.seed)) || m.lapStart === null) return m;
     const time = s.time - m.lapStart;
     return {
       ...m,
@@ -517,7 +542,8 @@ const strikeCause = (
   if (
     aloft &&
     arena &&
-    Math.hypot(pos[0] - arena.centre[0], pos[2] - arena.centre[2]) > arena.radius - FOOTPRINT &&
+    Math.hypot(pos[0] - arena.centre[0], pos[2] - arena.centre[2]) >
+      arena.radius - AIRFRAME_RADIUS &&
     pos[1] < arena.centre[1] + FENCE_HEIGHT
   ) {
     return 'fence';
@@ -538,8 +564,11 @@ const strikeCause = (
   ) {
     return 'animal';
   }
-  if (inAir && hasHitTerrain(pos, terrain)) {
-    return groundBeneath(terrain, pos[0], pos[2]) <= terrain.waterLevel ? 'water' : 'terrain';
+  const footprint = footprintFor(s.config);
+  if (inAir && hasHitTerrain(pos, terrain, footprint)) {
+    return groundBeneath(terrain, pos[0], pos[2], footprint) <= terrain.waterLevel
+      ? 'water'
+      : 'terrain';
   }
   return null;
 };

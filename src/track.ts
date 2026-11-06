@@ -1,4 +1,5 @@
-import { FOOTPRINT, groundBeneath, TURN_RADIUS } from './altitude';
+import { AIRFRAME_RADIUS as FOOTPRINT } from './airframe';
+import { groundBeneath } from './altitude';
 import { FRAME } from './gates';
 import { ranges } from './rng';
 import { distanceTo } from './routes';
@@ -51,45 +52,49 @@ export interface Track {
   readonly sky: readonly SkyObstacle[];
 }
 
-/** Gate openings leave about 8 m clear either side of the 14 m airframe. */
+/** Gate openings leave about 3 m clear either side of the 3 m airframe. */
 export const GATE_WIDTH: Readonly<Record<GateKind, number>> = {
-  gate: 36,
-  hoop: 34,
-  arch: 36,
-  dive: 36,
+  gate: 10,
+  hoop: 9.5,
+  arch: 10,
+  dive: 10,
 };
 /** Height of the opening's centre above the ground, metres, by kind. */
 export const GATE_HEIGHT: Readonly<Record<GateKind, readonly [number, number]>> = {
-  gate: [8, 16],
-  hoop: [6, 12],
-  arch: [6, 10],
-  dive: [20, 28],
+  gate: [2.5, 5.5],
+  hoop: [2.2, 4.5],
+  arch: [2, 3.5],
+  dive: [6.5, 9],
 };
 const GATE_KINDS: readonly GateKind[] = ['gate', 'hoop', 'arch', 'dive'];
 const OBSTACLE_SPECS: Readonly<
   Record<ObstacleKind, { readonly radius: number; readonly height: number }>
 > = {
-  pylon: { radius: 2.5, height: 40 },
-  pole: { radius: 0.8, height: 30 },
-  flag: { radius: 1.5, height: 28 },
-  tree: { radius: 4, height: 32 },
+  pylon: { radius: 0.8, height: 14 },
+  pole: { radius: 0.3, height: 10 },
+  flag: { radius: 0.5, height: 9 },
+  tree: { radius: 1.4, height: 11 },
 };
 const OBSTACLE_KINDS = Object.keys(OBSTACLE_SPECS) as readonly ObstacleKind[];
 
 export const MIN_GATES = 8;
 export const MAX_GATES = 12;
+/** Tightest turn the micro drone makes at track speed, metres (speed over turn rate; see trackFlight.ts). */
+export const TRACK_TURN_RADIUS = 9;
 /** Nearest two gates may be: three turn radii, so the next gate is always reachable. */
-export const MIN_SPACING = 3 * TURN_RADIUS;
+export const MIN_SPACING = 3 * TRACK_TURN_RADIUS;
 /** Sharpest change of course allowed at a gate, radians. */
 export const MAX_TURN = (100 * Math.PI) / 180;
 /** Space kept between an obstacle's edge and the racing line, beyond the airframe's reach. */
-export const OBSTACLE_MARGIN = 20;
+export const OBSTACLE_MARGIN = 7;
+/** The autopilot lines up this far before a gate, on its axis, so the legs it flies include that point. */
+export const APPROACH = 30;
 /** Loop radius range, metres, and the arena it sits in. */
-const LOOP_RADIUS: readonly [number, number] = [150, 230];
-export const ARENA_RADIUS = 300;
+const LOOP_RADIUS: readonly [number, number] = [60, 100];
+export const ARENA_RADIUS = 140;
 /** The pad is this far before the first gate and this far to one side, so the drone never has to fly back through the gate to land. */
-const START_RUN = 70;
-const START_SIDE = 80;
+const START_RUN = 25;
+const START_SIDE = 28;
 /** Pad positions to try, as [back from gate 0, to the side], nearest and left first. */
 /** Directions to try for the exit leg, as turns from gate 0's axis, straight on first. */
 const EXIT_TURNS: readonly number[] = [0, 0.7, -0.7, 1.4, -1.4];
@@ -100,18 +105,18 @@ const PAD_CHOICES: readonly (readonly [number, number])[] = [
   [START_RUN * 1.6, -START_SIDE],
 ];
 /** How far past the start/finish gate the drone flies before turning for the pad. */
-export const EXIT_RUN = 100;
+export const EXIT_RUN = 32;
 const OBSTACLES = 14;
 const SKY_OBJECTS = 9;
 const SKY_SPECS: Readonly<Record<SkyKind, { readonly radius: readonly [number, number] }>> = {
-  balloon: { radius: [5, 8] },
-  blimp: { radius: [10, 13] },
+  balloon: { radius: [1.6, 2.6] },
+  blimp: { radius: [3.2, 4.2] },
 };
 const SKY_KINDS = Object.keys(SKY_SPECS) as readonly SkyKind[];
 /** Height of a sky object's centre above the ground, metres. */
-const SKY_HEIGHT: readonly [number, number] = [18, 55];
+const SKY_HEIGHT: readonly [number, number] = [7, 16];
 /** Room kept between a sky object and any flown leg, beyond the airframe, to allow for the autopilot's height error. */
-const SKY_MARGIN = 20;
+const SKY_MARGIN = 7;
 const ATTEMPTS = 60;
 const SALT = 0x1f83d9ab;
 
@@ -246,8 +251,17 @@ export const generateTrack = (terrain: Terrain, centre: Vec3, seed: number): Tra
     pairs.find(([p, e]) => legClear(p, gate0) && legClear(gate0, e) && legClear(e, p)) ?? pairs[0];
   const startAt = seat(terrain, pad[0], pad[1]);
   const exitPoint: Vec3 = [exit[0], first.pos[1], exit[1]];
+  // Each gate is reached from a line-up point on its axis, so that is part of the line flown too.
+  const lineUps = gates.map((g): Vec2 => [
+    g.pos[0] - Math.cos(g.yaw) * APPROACH,
+    g.pos[2] - Math.sin(g.yaw) * APPROACH,
+  ]);
   const flown: readonly (readonly [Vec2, Vec2])[] = [
     ...legs,
+    ...gates.flatMap((g, i): readonly (readonly [Vec2, Vec2])[] => [
+      [points[(i + count - 1) % count], lineUps[i]],
+      [lineUps[i], [g.pos[0], g.pos[2]]],
+    ]),
     [pad, gate0],
     [gate0, exit],
     [exit, pad],
@@ -261,11 +275,11 @@ export const generateTrack = (terrain: Terrain, centre: Vec3, seed: number): Tra
     const kind = OBSTACLE_KINDS[Math.floor(rolls[k * 4 + 2] * OBSTACLE_KINDS.length)];
     const spec = OBSTACLE_SPECS[kind];
     const angle = rolls[k * 4] * Math.PI * 2;
-    const reach = Math.sqrt(rolls[k * 4 + 1]) * (ARENA_RADIUS - 20);
+    const reach = Math.sqrt(rolls[k * 4 + 1]) * (ARENA_RADIUS - 8);
     const x = centre[0] + Math.cos(angle) * reach;
     const z = centre[2] + Math.sin(angle) * reach;
     // Close to the line is the point of an obstacle, so favour places within a long stone's throw of it.
-    const near = legs.some(([a, b]) => toLeg(a, b, x, z) < 60);
+    const near = legs.some(([a, b]) => toLeg(a, b, x, z) < 20);
     const wet = terrain.heightAt(x, z) <= terrain.waterLevel + 1;
     return clearOfLine(x, z, spec.radius) && gateClear(x, z, spec.radius) && near && !wet
       ? { kind, pos: seat(terrain, x, z), radius: spec.radius, height: spec.height }
@@ -277,6 +291,17 @@ export const generateTrack = (terrain: Terrain, centre: Vec3, seed: number): Tra
   // Sky objects: near the line, but clear of every flown leg (the loop, takeoff, exit and return) in 3D.
   const legs3: readonly (readonly [Vec3, Vec3])[] = [
     ...gates.map((g, i) => [g.pos, gates[(i + 1) % gates.length].pos] as const),
+    ...gates.flatMap((g, i): readonly (readonly [Vec3, Vec3])[] => {
+      const lineUp: Vec3 = [
+        g.pos[0] - Math.cos(g.yaw) * APPROACH,
+        g.pos[1],
+        g.pos[2] - Math.sin(g.yaw) * APPROACH,
+      ];
+      return [
+        [gates[(i + gates.length - 1) % gates.length].pos, lineUp],
+        [lineUp, g.pos],
+      ];
+    }),
     [startAt, first.pos],
     [first.pos, exitPoint],
     [exitPoint, startAt],
@@ -287,12 +312,12 @@ export const generateTrack = (terrain: Terrain, centre: Vec3, seed: number): Tra
     const kind = SKY_KINDS[Math.floor(r[2] * SKY_KINDS.length)];
     const [lo, hi] = SKY_SPECS[kind].radius;
     const radius = lerp([lo, hi], r[3]);
-    const reach = Math.sqrt(r[1]) * (ARENA_RADIUS - 40);
+    const reach = Math.sqrt(r[1]) * (ARENA_RADIUS - 14);
     const x = centre[0] + Math.cos(r[0] * Math.PI * 2) * reach;
     const z = centre[2] + Math.sin(r[0] * Math.PI * 2) * reach;
     const y = Math.max(terrain.heightAt(x, z), terrain.waterLevel) + lerp(SKY_HEIGHT, r[4]);
     const pos: Vec3 = [x, y, z];
-    const near = legs.some(([a, b]) => toLeg(a, b, x, z) < 70);
+    const near = legs.some(([a, b]) => toLeg(a, b, x, z) < 24);
     const clear = legs3.every(([a, b]) => toLeg3(a, b, pos) > radius + FOOTPRINT + SKY_MARGIN);
     const gatesClear = gates.every(
       (g) => Math.hypot(g.pos[0] - x, g.pos[1] - y, g.pos[2] - z) > g.width + radius + SKY_MARGIN,

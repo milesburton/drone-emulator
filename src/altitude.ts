@@ -19,10 +19,15 @@ export const FOOTPRINT = 7;
 const FOOTPRINT_POINTS = 8;
 
 /** Highest ground under the airframe: the centre and a ring at the reach of the rotors. */
-export const groundBeneath = (terrain: Terrain, x: number, z: number): number =>
+export const groundBeneath = (
+  terrain: Terrain,
+  x: number,
+  z: number,
+  footprint = FOOTPRINT,
+): number =>
   Array.from({ length: FOOTPRINT_POINTS }, (_, i) => (i / FOOTPRINT_POINTS) * Math.PI * 2).reduce(
     (best, a) =>
-      Math.max(best, terrain.heightAt(x + Math.cos(a) * FOOTPRINT, z + Math.sin(a) * FOOTPRINT)),
+      Math.max(best, terrain.heightAt(x + Math.cos(a) * footprint, z + Math.sin(a) * footprint)),
     terrain.heightAt(x, z),
   );
 

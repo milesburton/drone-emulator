@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { animalAt, type Animal } from './animals';
 import type { Run, RunTree } from './forestRun';
 import type { Terrain } from './terrain';
+import type { Tunnel } from './tunnels';
 import { buildBranch } from './trackModel';
 
 const BARK = new THREE.MeshLambertMaterial({ color: 0x4b3321 });
@@ -17,7 +18,7 @@ export const buildRunTree = (t: RunTree): THREE.Group => {
   );
   trunk.position.y = t.height * 0.375;
   group.add(trunk);
-  const spread = 5 + t.radius * 2.2;
+  const spread = 1.6 + t.radius * 2.4;
   if (t.species === 'conifer') {
     [0.42, 0.62, 0.8].forEach((from, i) => {
       const tier = new THREE.Mesh(
@@ -47,13 +48,13 @@ export const buildGoal = (goal: readonly [number, number, number]): THREE.Group 
     depthWrite: false,
     side: THREE.DoubleSide,
   });
-  const pillar = new THREE.Mesh(new THREE.CylinderGeometry(7, 7, 260, 20, 1, true), glow);
-  pillar.position.y = 130;
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(24, 32), glow);
+  const pillar = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.6, 120, 20, 1, true), glow);
+  pillar.position.y = 60;
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(9, 32), glow);
   disc.rotation.x = -Math.PI / 2;
   disc.position.y = 0.6;
   const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(24, 0.9, 6, 40),
+    new THREE.TorusGeometry(9, 0.35, 6, 40),
     new THREE.MeshBasicMaterial({ color: 0xf5fff9 }),
   );
   ring.rotation.x = Math.PI / 2;
@@ -63,11 +64,49 @@ export const buildGoal = (goal: readonly [number, number, number]): THREE.Group 
   return group;
 };
 
+const TIMBER = new THREE.MeshLambertMaterial({ color: 0x6d4c2f, side: THREE.FrontSide });
+const LINING = new THREE.MeshLambertMaterial({ color: 0x9c8a6c, side: THREE.BackSide });
+const RIB = new THREE.MeshLambertMaterial({ color: 0x3e2c1b });
+const MOUTH = new THREE.MeshBasicMaterial({ color: 0xffb02e });
+
+/** A tunnel: a hollow tube with a lighter lining, ribs along it, and a glowing ring at each mouth. */
+export const buildTunnel = (t: Tunnel): THREE.Group => {
+  const group = new THREE.Group();
+  // Cylinders stand along y; lay this one along +x, the direction of travel.
+  const tube = (radius: number, material: THREE.Material): THREE.Mesh => {
+    const m = new THREE.Mesh(
+      new THREE.CylinderGeometry(radius, radius, t.length, 32, 1, true),
+      material,
+    );
+    m.rotation.z = Math.PI / 2;
+    m.position.x = t.length / 2;
+    return m;
+  };
+  group.add(tube(t.outer, TIMBER), tube(t.inner, LINING));
+  const ring = (x: number, tubeRadius: number, material: THREE.Material): THREE.Mesh => {
+    const m = new THREE.Mesh(
+      new THREE.TorusGeometry((t.inner + t.outer) / 2, tubeRadius, 8, 40),
+      material,
+    );
+    m.rotation.y = Math.PI / 2;
+    m.position.x = x;
+    return m;
+  };
+  [0, t.length].forEach((x) => group.add(ring(x, 0.55, MOUTH)));
+  Array.from({ length: 4 }, (_, i) => ((i + 1) * t.length) / 5).forEach((x) =>
+    group.add(ring(x, 0.35, RIB)),
+  );
+  group.position.set(...t.entrance);
+  group.rotation.y = -t.yaw;
+  return group;
+};
+
 /** The whole run: every tree and limb in the forest, and the goal. */
 export const buildRun = (run: Run): THREE.Group => {
   const group = new THREE.Group();
   run.trees.forEach((t) => group.add(buildRunTree(t)));
   run.branches.forEach((b) => group.add(buildBranch(b)));
+  run.tunnels.forEach((t) => group.add(buildTunnel(t)));
   group.add(buildGoal(run.goal));
   return group;
 };
@@ -107,6 +146,8 @@ const buildDeer = (): THREE.Group => {
     return leg;
   });
   deer.add(body, neck, head, ...antlers, ...legs);
+  // The model is drawn about 4 m long; a deer is about 1.6 m.
+  deer.scale.setScalar(0.4);
   return deer;
 };
 
@@ -123,6 +164,8 @@ const buildBird = (): { readonly group: THREE.Group; readonly wings: readonly TH
     return wing;
   });
   bird.add(body, head, ...wings);
+  // Drawn with a 6 m span; a hawk's is about 1.4 m.
+  bird.scale.setScalar(0.25);
   return { group: bird, wings };
 };
 

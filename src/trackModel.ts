@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { FRAME as GATE_FRAME } from './gates';
 import type { Arena } from './terrain';
 import { FENCE_HEIGHT } from './terrain';
 import type { Branch } from './forestRun';
@@ -10,7 +11,7 @@ const trim = (hex: number): THREE.MeshLambertMaterial =>
     emissive: new THREE.Color(hex).multiplyScalar(0.45),
   });
 
-const FRAME = 1.8;
+const FRAME = GATE_FRAME;
 const FOOT = 4;
 const COLOURS = { gate: 0xff8a00, hoop: 0x20c4ff, arch: 0xb06cff, dive: 0xff2d7a, start: 0x30d158 };
 

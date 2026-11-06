@@ -1,4 +1,4 @@
-import { groundBeneath } from './altitude';
+import { FOOTPRINT, groundBeneath } from './altitude';
 import type { Terrain } from './terrain';
 import type { Crash, Drone, Vec2, Vec3 } from './types';
 
@@ -78,11 +78,11 @@ export const surfaceAt = (terrain: Terrain, x: number, z: number): number =>
 const SKID_DROP = 2;
 
 /** True once any part of the airframe (the centre, a rotor tip or the skids) is at or below the land or water. */
-export const hasHitTerrain = (pos: Vec3, terrain: Terrain): boolean =>
-  pos[1] - SKID_DROP <=
+export const hasHitTerrain = (pos: Vec3, terrain: Terrain, footprint = FOOTPRINT): boolean =>
+  pos[1] - SKID_DROP * (footprint / FOOTPRINT) <=
   Math.max(
     terrain.waterLevel,
-    groundBeneath(terrain, pos[0], pos[2]),
+    groundBeneath(terrain, pos[0], pos[2], footprint),
     surfaceAt(terrain, pos[0], pos[2]),
   );
 

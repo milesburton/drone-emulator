@@ -1,18 +1,32 @@
-import { FOOTPRINT, groundBeneath } from './altitude';
+import { AIRFRAME_RADIUS as FOOTPRINT } from './airframe';
+import { groundBeneath } from './altitude';
 import { animalAt, type Animal } from './animals';
 import { toSegment3 } from './gates';
 import { toRandomFn } from './rng';
+import {
+  growTunnels,
+  groundDistance,
+  hitsTunnel,
+  laneDistance,
+  tunnelClearance,
+  tunnelHold,
+  reversed,
+  tunnelWaypoints,
+  TUNNEL_OUTER,
+  TUNNEL_TREE_CLEAR,
+  type Tunnel,
+} from './tunnels';
 import type { Terrain } from './terrain';
 import type { Vec3 } from './types';
 
 /** Speed through the air on a forest run, m/s (about 215 km/h); a racer at full tilt. */
-export const RUN_SPEED = 60;
+export const RUN_SPEED = 40;
 /** Fastest turn on a run, radians per second: about a 20 m radius at speed. */
-export const RUN_TURN_RATE = 3;
+export const RUN_TURN_RATE = 4.5;
 /** Height above the ground the drone cruises at, and the band it may dodge within, metres. */
-export const RUN_ALT = 9;
-export const RUN_FLOOR = 4.5;
-export const RUN_CEILING = 15;
+export const RUN_ALT = 3.5;
+export const RUN_FLOOR = 1.5;
+export const RUN_CEILING = 8;
 
 /** A tree in the run's forest, scaled to the 14 m airframe; its trunk is what the drone must dodge. */
 export interface RunTree {
@@ -39,28 +53,30 @@ export interface Run {
   readonly goal: Vec3;
   readonly trees: readonly RunTree[];
   readonly branches: readonly Branch[];
+  /** Tubes across the line that the drone must fly through. */
+  readonly tunnels: readonly Tunnel[];
 }
 
 const SALT = 0x2545f491;
 /** Straight-line distance from the pad to the goal, metres. */
-export const GOAL_DISTANCE = 760;
+export const GOAL_DISTANCE = 600;
 /** How much of the world the goal may sit in, as a fraction of its size on each side of the centre. */
 const GOAL_LIMIT = 0.45;
 const GOAL_ATTEMPTS = 48;
 /** Jittered grid: one trunk per cell, somewhere in a central window, so no two are closer than CELL - WINDOW. */
-const CELL = 38;
-const WINDOW = 14;
+const CELL = 14;
+const WINDOW = 5;
 /** Forest half-width either side of the line, and the clearings kept round the pad and the goal. */
-const CORRIDOR = 230;
-export const PAD_CLEARING = 60;
-export const GOAL_CLEARING = 75;
+const CORRIDOR = 90;
+export const PAD_CLEARING = 25;
+export const GOAL_CLEARING = 30;
 const MAX_SLOPE = 0.7;
 const SLOPE_STEP = 4;
-const TRUNK: readonly [number, number] = [1.4, 2.8];
-const TREE_HEIGHT: readonly [number, number] = [30, 48];
-const LIMB_HEIGHT: readonly [number, number] = [4.5, 13];
-const LIMB_LENGTH: readonly [number, number] = [5, 10];
-const LIMB_RADIUS = 1.1;
+const TRUNK: readonly [number, number] = [0.45, 0.9];
+const TREE_HEIGHT: readonly [number, number] = [11, 18];
+const LIMB_HEIGHT: readonly [number, number] = [1.8, 5.5];
+const LIMB_LENGTH: readonly [number, number] = [2, 4];
+const LIMB_RADIUS = 0.3;
 
 const lerp = ([a, b]: readonly [number, number], t: number): number => a + (b - a) * t;
 
@@ -121,7 +137,13 @@ const goalFor = (terrain: Terrain, start: Vec3, seed: number): Vec3 => {
   return (good ?? best).c;
 };
 
-const growTrees = (terrain: Terrain, start: Vec3, goal: Vec3, seed: number): readonly RunTree[] => {
+const growTrees = (
+  terrain: Terrain,
+  start: Vec3,
+  goal: Vec3,
+  tunnels: readonly Tunnel[],
+  seed: number,
+): readonly RunTree[] => {
   const minX = Math.min(start[0], goal[0]) - CORRIDOR;
   const maxX = Math.max(start[0], goal[0]) + CORRIDOR;
   const minZ = Math.min(start[2], goal[2]) - CORRIDOR;
@@ -146,6 +168,7 @@ const growTrees = (terrain: Terrain, start: Vec3, goal: Vec3, seed: number): rea
         toLine(start, goal, x, z) < CORRIDOR &&
         Math.hypot(x - start[0], z - start[2]) > PAD_CLEARING &&
         Math.hypot(x - goal[0], z - goal[2]) > GOAL_CLEARING &&
+        tunnels.every((t) => laneDistance(t, x, z) > TUNNEL_OUTER + TUNNEL_TREE_CLEAR) &&
         dryAt(terrain, x, z) &&
         slopeAt(terrain, x, z) < MAX_SLOPE
         ? [{ kind: 'tree', species, pos: [x, y, z], radius, height }]
@@ -207,11 +230,26 @@ export const runFor = (terrain: Terrain, seed: number): Run & Indexed => {
   if (cached) return cached;
   const start = startOf(terrain);
   const goal = goalFor(terrain, start, seed);
-  const trees = growTrees(terrain, start, goal, seed);
-  const built = index({ start, goal, trees, branches: growLimbs(trees, seed) });
+  const tunnels = growTunnels(terrain, start, goal, RUN_ALT);
+  const trees = growTrees(terrain, start, goal, tunnels, seed);
+  const built = index({ start, goal, trees, branches: growLimbs(trees, seed), tunnels });
   byTerrain.set(seed, built);
   return built;
 };
+
+/**
+ * The waypoints of a run: the pad, a line-up and a run-out for each tunnel in turn, then the goal,
+ * then back through the tunnels the other way. The route ends by wrapping round to the pad.
+ */
+export const runRoute = (run: Run): readonly Vec3[] => [
+  run.start,
+  ...run.tunnels.flatMap(tunnelWaypoints),
+  run.goal,
+  ...[...run.tunnels].reverse().flatMap((t) => tunnelWaypoints(reversed(t))),
+];
+
+/** Index of the goal in the run's route. */
+export const goalIndex = (run: Run): number => 1 + 2 * run.tunnels.length;
 
 /** Trees and limbs in the grid cells within `range` metres of (x, z). */
 export const near = (
@@ -243,7 +281,9 @@ export const hitsLimb = (b: Branch, pos: Vec3): boolean =>
 export const strikes = (run: Run & Indexed, pos: Vec3): boolean => {
   const around = near(run, pos[0], pos[2], CELL);
   return (
-    around.trees.some((t) => hitsTrunk(t, pos)) || around.branches.some((b) => hitsLimb(b, pos))
+    around.trees.some((t) => hitsTrunk(t, pos)) ||
+    around.branches.some((b) => hitsLimb(b, pos)) ||
+    run.tunnels.some((t) => hitsTunnel(t, pos))
   );
 };
 
@@ -265,7 +305,7 @@ const RUN_CLIMB = 30;
 const RUN_DESCENT = 24;
 const RUN_RESPONSE = 3;
 /** How far ahead the run looks for rising ground, metres. */
-const GROUND_LOOK = 50;
+const GROUND_LOOK = 25;
 
 /**
  * Eases altitude towards `RUN_ALT` above the highest ground under and ahead of the airframe,
@@ -277,27 +317,28 @@ export const nextRunAltitude = (
   x: number,
   z: number,
   heading: number,
+  hold: number | null,
   dt: number,
 ): number => {
   const here = Math.max(groundBeneath(terrain, x, z), terrain.waterLevel);
   const ahead = Math.max(here, groundAhead(terrain, x, z, heading, GROUND_LOOK));
-  const wanted = Math.min(ahead + RUN_ALT, here + RUN_CEILING);
+  const wanted = hold ?? Math.min(ahead + RUN_ALT, here + RUN_CEILING);
   const step = (wanted - y) * Math.min(1, dt * RUN_RESPONSE);
   const eased = y + Math.max(-RUN_DESCENT * dt, Math.min(RUN_CLIMB * dt, step));
   return Math.max(eased, here + RUN_FLOOR);
 };
 
 /** How far ahead, in seconds of flight, the planner looks along each candidate heading. */
-const PLAN_LOOK = 2;
-const PLAN_STEP = 4;
+const PLAN_LOOK = 1.5;
+const PLAN_STEP = 3;
 /** Seconds the autopilot takes to close most of a height gap, for predicting its height along a path. */
 const HEIGHT_LAG = 0.4;
 /** Candidate headings: this many either side of the goal bearing, this far apart (radians). */
 const PLAN_FAN = 24;
 const PLAN_SPACING = 0.085;
 /** Clear metres past the airframe's reach that a path must keep, and the clearance beyond which more is no better. */
-const PLAN_SAFE = 5;
-const PLAN_CAP = 16;
+const PLAN_SAFE = 1.3;
+const PLAN_CAP = 5;
 /** Cost of each radian of turning away from the current heading, against each radian away from the goal bearing. */
 const PLAN_TURN_COST = 0.45;
 
@@ -315,6 +356,7 @@ const clearanceAlong = (
   length: number,
   trees: readonly RunTree[],
   limbs: readonly Branch[],
+  tubes: readonly Tunnel[],
   critters: readonly (readonly Vec3[])[],
   radii: readonly number[],
 ): number => {
@@ -331,7 +373,13 @@ const clearanceAlong = (
       const z = st.z + Math.sin(h) * PLAN_STEP + (wind[1] * PLAN_STEP) / speed;
       const d = (i + 1) * PLAN_STEP;
       // The autopilot follows the ground, so the drone's height there is where its easing takes it.
-      const cruise = Math.max(terrain.heightAt(x, z), terrain.waterLevel) + RUN_ALT;
+      const cruise =
+        tunnelHold(tubes, [x, pos[1], z], h) ??
+        Math.max(
+          terrain.heightAt(x, z),
+          terrain.heightAt(x + Math.cos(h) * GROUND_LOOK, z + Math.sin(h) * GROUND_LOOK),
+          terrain.waterLevel,
+        ) + RUN_ALT;
       const p: Vec3 = [
         x,
         pos[1] + (cruise - pos[1]) * (1 - Math.exp(-d / (speed * HEIGHT_LAG))),
@@ -351,7 +399,8 @@ const clearanceAlong = (
           Math.min(m, Math.hypot(p[0] - at[0], p[1] - at[1], p[2] - at[2]) - radii[k] - FOOTPRINT),
         PLAN_CAP,
       );
-      return { x, z, h, worst: Math.min(st.worst, trunk, limb, animal) };
+      const tube = tubes.reduce((m, t) => Math.min(m, tunnelClearance(t, p, PLAN_CAP)), PLAN_CAP);
+      return { x, z, h, worst: Math.min(st.worst, trunk, limb, animal, tube) };
     },
     { x: pos[0], z: pos[2], h: heading, worst: PLAN_CAP },
   ).worst;
@@ -371,8 +420,12 @@ export const planCourse = (
   critters: readonly Animal[],
   time: number,
   around: { readonly trees: readonly RunTree[]; readonly branches: readonly Branch[] },
+  tunnels: readonly Tunnel[],
 ): number => {
   const length = speed * PLAN_LOOK;
+  const tubes = tunnels.filter(
+    (t) => groundDistance(t, pos[0], pos[2]) < length + t.outer + FOOTPRINT + PLAN_CAP,
+  );
   const trees = around.trees.filter(
     (t) =>
       Math.hypot(t.pos[0] - pos[0], t.pos[2] - pos[2]) < length + t.radius + FOOTPRINT + PLAN_CAP,
@@ -406,6 +459,7 @@ export const planCourse = (
         length,
         trees,
         limbs,
+        tubes,
         ahead,
         radii,
       ),

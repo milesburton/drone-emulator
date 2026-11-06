@@ -1,6 +1,6 @@
 import { groundBeneath } from './altitude';
 import { describe, expect, it } from 'vitest';
-import { FOOTPRINT } from './altitude';
+import { AIRFRAME_RADIUS as FOOTPRINT } from './airframe';
 import { defaultConfig } from './sim';
 import type { Vec3 } from './types';
 import { createTerrain } from './terrain';
@@ -90,7 +90,7 @@ describe('track generator', () => {
     expect(tracks.some((t) => t.sky.length > 0)).toBe(true);
     tracks.forEach(({ gates, sky, start, exit }) =>
       sky.forEach((o) => {
-        expect(o.pos[1] - o.radius).toBeGreaterThan(terrain.heightAt(o.pos[0], o.pos[2]) + 5);
+        expect(o.pos[1] - o.radius).toBeGreaterThan(terrain.heightAt(o.pos[0], o.pos[2]) + 2);
         const legs: readonly (readonly [Vec3, Vec3])[] = [
           ...gates.map((g, i) => [g.pos, gates[(i + 1) % gates.length].pos] as const),
           [start, gates[0].pos],
@@ -126,8 +126,9 @@ describe('track generator', () => {
       const dz = start[2] - g.pos[2];
       const along = dx * Math.cos(g.yaw) + dz * Math.sin(g.yaw);
       const side = -dx * Math.sin(g.yaw) + dz * Math.cos(g.yaw);
-      expect(along).toBeCloseTo(-70, 3);
-      expect(Math.abs(side)).toBeCloseTo(80, 3);
+      // One of the pad positions the generator tries: 25 m or 40 m back, 28 m to either side.
+      expect([-25, -40].some((d) => Math.abs(along - d) < 1e-3)).toBe(true);
+      expect(Math.abs(side)).toBeCloseTo(28, 3);
     });
   });
 });

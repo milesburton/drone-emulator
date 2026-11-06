@@ -10,6 +10,7 @@ import { animalsFor } from './animals';
 import { buildAnimals, buildRun, type AnimalsView } from './runModel';
 import { buildCraftFx } from './craftFx';
 import { buildCrashFx } from './crashFx';
+import { MICRO_SCALE } from './airframe';
 import { buildDrone } from './droneModel';
 import { buildAirlinerFx } from './airlinersFx';
 import { buildFlag, faceDownwind } from './flags';
@@ -222,7 +223,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   const scene = new THREE.Scene();
   scene.background = SKY_CLEAR.clone();
   scene.fog = new THREE.Fog(SKY_CLEAR.clone(), FOG_NEAR, FOG_FAR);
-  const camera = new THREE.PerspectiveCamera(60, 1, 1, 12000);
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.3, 12000);
   const controls = new OrbitControls(camera, canvas);
   controls.maxPolarAngle = Math.PI * 0.49;
   controls.minDistance = 10;
@@ -373,6 +374,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     trackKey: null as string | null,
     trackTerrain: null as Terrain | null,
     droneAt: new THREE.Vector3(),
+    scale: 1,
     time: 0,
   };
   const tintTarget = new THREE.Color();
@@ -599,6 +601,15 @@ export const createView = (canvas: HTMLCanvasElement): View => {
       // Cloud would hide the track from above.
       clouds[i].visible = !look.overview;
     });
+    // The micro drone of the track and the run is drawn small, with its camera, pad and effects to match.
+    const scale = s.config.mode === 'sortie' ? 1 : MICRO_SCALE;
+    if (scale !== cache.scale) {
+      cache.scale = scale;
+      look.framed = false;
+      drone.scale.setScalar(scale);
+      pad.scale.setScalar(scale);
+      controls.minDistance = 10 * scale;
+    }
     const [x, y, z] = s.drone.pos;
     const previous = cache.droneAt.clone();
     cache.droneAt.set(x, y, z);
@@ -606,7 +617,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     const crashed = s.drone.crash;
     // A dead drone is not buffeted by the autopilot's wind model; it just falls.
     drone.position.copy(cache.droneAt);
-    if (!crashed) drone.position.add(new THREE.Vector3(...wobble.offset));
+    if (!crashed) drone.position.add(new THREE.Vector3(...wobble.offset).multiplyScalar(scale));
     // The model faces +z; YXZ order applies roll, then pitch, then yaw. Three's +x rotation is nose-down.
     drone.rotation.set(
       -(s.drone.pitch + (crashed ? 0 : wobble.pitch)),
@@ -633,6 +644,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
       [x, y, z],
       [s.config.windX + gust[0], s.config.windZ + gust[1]],
       terrain,
+      scale,
+      terrain.heightAt(x, z) <= terrain.waterLevel,
     );
     const now = performance.now();
     const dt = Math.min((now - look.last) / 1000, 0.1);
@@ -648,18 +661,19 @@ export const createView = (canvas: HTMLCanvasElement): View => {
             (run.start[2] + run.goal[2]) / 2,
           ]
         : trackFor(terrain, s.config.seed).centre;
-      const height = run ? OVERVIEW_HEIGHT * 1.9 : OVERVIEW_HEIGHT;
+      const height = run ? OVERVIEW_HEIGHT * 0.8 : OVERVIEW_HEIGHT * 0.5;
       camera.position.set(cx, cy + height, cz + height * 0.45);
       camera.lookAt(cx, cy, cz);
     } else if (!look.free) {
       if (look.framed) camera.position.add(cache.droneAt.clone().sub(previous));
-      else camera.position.copy(cache.droneAt).add(CAMERA_OFFSET);
+      else
+        camera.position.copy(cache.droneAt).add(CAMERA_OFFSET.clone().multiplyScalar(scale * 1.6));
       look.framed = true;
     }
     held.forEach((code) => {
       const [x, z] = MOVE_KEYS[code] ?? [0, 0];
       // Level with the ground like an FPS: pitch steers the view but not the walking direction.
-      const step = MOVE_SPEED * dt;
+      const step = MOVE_SPEED * Math.max(scale, 0.35) * dt;
       camera.position.y += (RISE_KEYS[code] ?? 0) * step;
       camera.position.x += (x * Math.cos(look.yaw) + z * Math.sin(look.yaw)) * step;
       camera.position.z += (z * Math.cos(look.yaw) - x * Math.sin(look.yaw)) * step;

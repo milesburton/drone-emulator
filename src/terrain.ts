@@ -30,10 +30,10 @@ export interface Arena {
 }
 
 /** The fence stands this far from the arena's centre, and is this tall. */
-export const FENCE_RADIUS = 390;
-export const FENCE_HEIGHT = 60;
-const ARENA_FLAT = 430;
-const ARENA_BLEND = 140;
+export const FENCE_RADIUS = 170;
+export const FENCE_HEIGHT = 20;
+const ARENA_FLAT = 195;
+const ARENA_BLEND = 60;
 /** The floor is at least this far above the water. */
 const ARENA_ABOVE_WATER = 4;
 
