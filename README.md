@@ -6,6 +6,17 @@ tracks a drone flying a random waypoint list over procedural simplex-noise terra
 
 State is immutable: every step takes a `Snapshot` and returns a new one.
 
+## Status
+
+This was a fun side project, built while other builds were working their way through
+CI/CD. It has reached a stop point: it is complete enough to play with, and no further
+work is planned.
+
+## Built with Claude
+
+Written almost entirely by [Claude](https://www.anthropic.com/claude) (Anthropic's AI
+assistant) using [Claude Code](https://claude.com/claude-code), directed by Miles Burton.
+
 ## Commands
 
 | Command                | Purpose                                          |
