@@ -32,7 +32,7 @@ import {
   rainDrops,
   rainStreak,
 } from './weather';
-import { streakSegment, windSpeed } from './wind';
+import { buildStreamlines, STREAM_STEP, windSpeed } from './streamlines';
 
 /**
  * The Three.js shell. Everything mutable lives inside this closure; it only ever
@@ -48,7 +48,6 @@ export interface View {
 }
 
 const RAIN_COUNT = 1800;
-const WIND_COUNT = 450;
 const ROTOR_SPEED = 60;
 /** Body colour of a wreck. */
 const CHARRED = 0x1c1c1e;
@@ -313,16 +312,23 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   rain.frustumCulled = false;
   scene.add(rain);
 
-  const streaks = rainDrops(WIND_COUNT, 311);
-  const windPositions = new Float32Array(WIND_COUNT * 6);
-  const windGeometry = new THREE.BufferGeometry();
-  windGeometry.setAttribute('position', new THREE.BufferAttribute(windPositions, 3));
+  // Wind as long streamlines bent by the terrain; rebuilt when the map or the wind changes.
   const windLines = new THREE.LineSegments(
-    windGeometry,
-    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.1 }),
+    new THREE.BufferGeometry(),
+    new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.6 }),
   );
   windLines.frustumCulled = false;
   scene.add(windLines);
+  const flow = {
+    terrain: null as Terrain | null,
+    key: '',
+    builtAt: -Infinity,
+    /** Distance along its line of each segment end, for the travelling pulse. */
+    arcs: new Float32Array(0),
+    /** Local speed over the open speed at each segment end. */
+    ratios: new Float32Array(0),
+    colors: new Float32Array(0),
+  };
 
   const bolt = new THREE.Line(
     new THREE.BufferGeometry(),
@@ -522,20 +528,48 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     const speed = windSpeed(windX, windZ);
     windLines.visible = speed > 0.5;
     if (!windLines.visible) return;
-    (windLines.material as THREE.LineBasicMaterial).opacity =
-      0.05 + (Math.min(speed, 20) / 20) * 0.15;
-    streaks.forEach((offset, i) => {
-      const [head, tail] = streakSegment(
-        offset,
-        windX,
-        windZ,
-        s.time,
-        s.drone.pos,
-        terrain.heightAt,
+    const key = `${windX},${windZ}`;
+    // A slider drag changes the wind many times a second; rebuild at most every 120 ms and show the last lines between.
+    const stale = flow.terrain !== terrain || flow.key !== key;
+    if (stale && (flow.terrain !== terrain || performance.now() - flow.builtAt > 120)) {
+      flow.builtAt = performance.now();
+      const lines = buildStreamlines(terrain, windX, windZ);
+      const positions: number[] = [];
+      const arcs: number[] = [];
+      const ratios: number[] = [];
+      lines.forEach(({ points, speeds }) => {
+        points.slice(1).forEach((b, i) => {
+          const a = points[i];
+          positions.push(...a, ...b);
+          arcs.push(i * STREAM_STEP, (i + 1) * STREAM_STEP);
+          ratios.push(speeds[i], speeds[i + 1]);
+        });
+      });
+      windLines.geometry.dispose();
+      windLines.geometry = new THREE.BufferGeometry();
+      windLines.geometry.setAttribute(
+        'position',
+        new THREE.BufferAttribute(new Float32Array(positions), 3),
       );
-      windPositions.set([...head, ...tail], i * 6);
+      flow.colors = new Float32Array(positions.length);
+      windLines.geometry.setAttribute('color', new THREE.BufferAttribute(flow.colors, 3));
+      flow.arcs = new Float32Array(arcs);
+      flow.ratios = new Float32Array(ratios);
+      flow.terrain = terrain;
+      flow.key = key;
+    }
+    // Pale blue where the air is slowed or sheltered, brighter white where it speeds over a crest, with a
+    // slow pulse running downwind along every line.
+    const strength = 0.35 + (Math.min(speed, 20) / 20) * 0.65;
+    flow.arcs.forEach((arc, i) => {
+      const pulse = 0.72 + 0.28 * Math.sin(arc * 0.05 - s.time * 2.2);
+      const fast = Math.min(Math.max((flow.ratios[i] - 0.6) / 1.0, 0), 1);
+      const light = strength * pulse;
+      flow.colors[i * 3] = light * (0.55 + 0.45 * fast);
+      flow.colors[i * 3 + 1] = light * (0.78 + 0.22 * fast);
+      flow.colors[i * 3 + 2] = light;
     });
-    windGeometry.attributes.position.needsUpdate = true;
+    windLines.geometry.attributes.color.needsUpdate = true;
   };
 
   const boltTop = (s: Snapshot, strike: readonly [number, number]): number =>

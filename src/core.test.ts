@@ -68,7 +68,6 @@ import {
   stepWeather,
 } from './weather';
 import { bankFor, MAX_PITCH, MAX_ROLL, nextAttitude, pitchFor } from './attitude';
-import { streakSegment, WIND_BOX } from './wind';
 import type { Snapshot } from './types';
 
 const deepFreeze = <T>(o: T): T => {
@@ -403,39 +402,6 @@ describe('waypoints', () => {
     const moved = retarget(points, taller);
     expect(moved.map((p) => [p[0], p[2]])).toEqual(points.map((p) => [p[0], p[2]]));
     expect(moved[0][1]).toBeCloseTo(taller.heightAt(points[0][0], points[0][2]) + CLEARANCE);
-  });
-});
-
-describe('wind streaks', () => {
-  const centre = [10, 50, -20] as const;
-  const flat = (): number => 0;
-
-  it('stays inside a box around the viewer and moves downwind', () => {
-    const [a] = streakSegment([0.3, 0.5, 0.7], 8, 0, 0, centre, flat);
-    const [b] = streakSegment([0.3, 0.5, 0.7], 8, 0, 5, centre, flat);
-    expect(b[0]).not.toBeCloseTo(a[0]);
-    [a, b].forEach((p) => {
-      expect(Math.abs(p[0] - centre[0])).toBeLessThanOrEqual(WIND_BOX / 2);
-      expect(Math.abs(p[2] - centre[2])).toBeLessThanOrEqual(WIND_BOX / 2);
-    });
-  });
-
-  it('rides the terrain: height above ground is constant and the tail follows the slope', () => {
-    const slope = (x: number): number => x * 0.5;
-    const [head, tail] = streakSegment([0.1, 0.5, 0.3], 10, 0, 3, centre, slope);
-    expect(head[1] - slope(head[0])).toBeCloseTo(tail[1] - slope(tail[0]));
-    expect(head[1]).not.toBeCloseTo(tail[1]);
-  });
-
-  it('trails behind the head, along the wind', () => {
-    const [head, tail] = streakSegment([0.1, 0.2, 0.3], 0, -10, 2, centre, flat);
-    expect(tail[2]).toBeGreaterThan(head[2]);
-    expect(tail[0]).toBeCloseTo(head[0]);
-  });
-
-  it('collapses to a point in still air', () => {
-    const [head, tail] = streakSegment([0.1, 0.2, 0.3], 0, 0, 2, centre, flat);
-    expect(tail).toEqual(head);
   });
 });
 

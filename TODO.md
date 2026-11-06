@@ -10,7 +10,7 @@
 
 ## Miles, 2026-11-06
 
-8. Wind lines should be a single continuous line throughout the map, with smooth curves like a flowing wave. The idea is to show how the terrain affects local weather conditions (as Flight Simulator does). NOT STARTED: queued behind the micro-drone rescale.
+8. Wind lines should be a single continuous line throughout the map, with smooth curves like a flowing wave, showing how the terrain affects local weather (as Flight Simulator does). DONE: streamlines.ts traces long lines through a terrain-turned flow field (deflected round slopes, faster over crests), smoothed, with a pulse running downwind; not browser-checked.
 9. Splash when the drone crashes into water. DONE (crashFx.ts: jet, ring, droplets), not browser-checked.
 10. Micro drone (about 3 m, real FPV scale) in FPV track and Forest run; obstacles shrunk to match. DONE (tests and sweeps; not browser-checked).
 11. Tunnels the pilot must fly through (Forest run). DONE (out and back through each; not browser-checked).
