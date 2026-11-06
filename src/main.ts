@@ -15,7 +15,7 @@ import {
   calmStorm,
   triggerStorm,
 } from './sim';
-import { decodeConfig, encodeConfig } from './shareLink';
+import { decodeConfig, decodeStorm, encodeConfig } from './shareLink';
 import { createTerrain } from './terrain';
 import type { Config, Mode } from './types';
 
@@ -30,10 +30,20 @@ const paintCluster = createCluster(byId('cluster'));
 
 // The single owner of "current" state: the loop replaces these with new values.
 // The page's address carries the settings (see shareLink.ts), so a copied link opens the same map and mode.
-const initialConfig: Config = { ...defaultConfig, ...decodeConfig(window.location.hash) };
+const linked = decodeConfig(window.location.hash);
+// A forest run is always in the forest biome, so a link that names the mode alone still gets it.
+const initialConfig: Config = {
+  ...defaultConfig,
+  ...(linked.mode === 'run' && linked.biome === undefined ? { biome: 'forest' as Biome } : {}),
+  ...linked,
+};
 const model = (() => {
   const terrain = createTerrain(initialConfig);
-  return { terrain, snapshot: createSnapshot(initialConfig, terrain) };
+  const created = createSnapshot(initialConfig, terrain);
+  return {
+    terrain,
+    snapshot: decodeStorm(window.location.hash) ? triggerStorm(created) : created,
+  };
 })();
 
 const configure = (patch: Partial<Config>): void => {
@@ -153,7 +163,7 @@ let groundSpeed = 0;
 // Keep the address in step with the settings, writing only when it changes.
 let shown = '';
 const syncAddress = (): void => {
-  const next = `#${encodeConfig(model.snapshot.config, defaultConfig)}`;
+  const next = `#${encodeConfig(model.snapshot.config, defaultConfig, model.snapshot.weather.phase === 'storm')}`;
   if (next === shown) return;
   shown = next;
   window.history.replaceState(null, '', next);

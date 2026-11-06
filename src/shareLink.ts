@@ -21,7 +21,7 @@ const whole = (text: string | null): number | null => {
  * The settings a person can change, as a short URL fragment (`seed=7&mode=run&wind=6,-3`).
  * Only what differs from `defaults` is written, so the common case stays short.
  */
-export const encodeConfig = (cfg: Config, defaults: Config): string => {
+export const encodeConfig = (cfg: Config, defaults: Config, storm = false): string => {
   const parts: readonly (readonly [string, string] | null)[] = [
     ['seed', String(cfg.seed)],
     cfg.mode !== defaults.mode ? ['mode', cfg.mode] : null,
@@ -33,6 +33,7 @@ export const encodeConfig = (cfg: Config, defaults: Config): string => {
     cfg.lakes !== defaults.lakes ? ['lakes', cfg.lakes ? '1' : '0'] : null,
     cfg.river !== defaults.river ? ['river', cfg.river ? '1' : '0'] : null,
     cfg.roads !== defaults.roads ? ['roads', cfg.roads ? '1' : '0'] : null,
+    storm ? ['storm', '1'] : null,
   ];
   return parts
     .flatMap((p) => (p ? [p] : []))
@@ -78,3 +79,7 @@ export const decodeConfig = (fragment: string): Partial<Config> => {
   ];
   return Object.fromEntries(pairs.filter(([, v]) => v !== undefined)) as Partial<Config>;
 };
+
+/** Whether the link asks for a storm to be under way when the page opens. */
+export const decodeStorm = (fragment: string): boolean =>
+  new URLSearchParams(fragment.replace(/^#/, '')).get('storm') === '1';

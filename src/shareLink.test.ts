@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeConfig, encodeConfig } from './shareLink';
+import { decodeConfig, decodeStorm, encodeConfig } from './shareLink';
 import { defaultConfig } from './sim';
 import type { Config } from './types';
 
@@ -46,5 +46,13 @@ describe('share link', () => {
       windZ: -20,
       terrainScale: 150,
     });
+  });
+
+  it('carries a storm in progress', () => {
+    expect(encodeConfig(defaultConfig, defaultConfig, true)).toBe(
+      `seed=${defaultConfig.seed}&storm=1`,
+    );
+    expect(decodeStorm('#seed=1&storm=1')).toBe(true);
+    expect(decodeStorm('#seed=1')).toBe(false);
   });
 });
