@@ -27,7 +27,7 @@ export const TAKEOFF_CLIMB = 8;
 export const LAND_DESCENT = 5;
 export const LAND_SPEED = 12;
 const MIN_GROUNDSPEED = 5;
-const LAND_APPROACH_TIME = 3;
+const LAND_APPROACH_TIME = 5;
 const HIGH_WIND = 8;
 const HEAVY_RAIN = 0.2;
 

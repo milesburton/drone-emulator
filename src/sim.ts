@@ -1,5 +1,14 @@
-import { CLEARANCE, LANE_SPACING, nextAltitude, seatWaypoint } from './altitude';
+import { CLEARANCE, LANE_SPACING, MIN_CLEARANCE, nextAltitude, seatWaypoint } from './altitude';
 import { nextAttitude } from './attitude';
+import {
+  AGILE_CLIMB_FACTOR,
+  AGILE_YAW_ACCEL_PER_RATE,
+  approach,
+  smoothClimb,
+  SPEED_ACCEL,
+  turnSmoothly,
+  YAW_ACCEL_PER_RATE,
+} from './smooth';
 import { hitsCraft } from './craft';
 import { beginCrash, fall, hasHitTerrain, hasImpacted } from './crash';
 import { initEkf, predict, update, MEASUREMENT_MATRIX } from './ekf';
@@ -330,6 +339,42 @@ const separationLift = (s: Snapshot, others: readonly Nearby[]): number =>
           Math.hypot(o.pos[0] - s.drone.pos[0], o.pos[2] - s.drone.pos[2]) < SEPARATION_RANGE,
       ).length;
 
+/** Vertical acceleration of takeoff and landing, m/s squared. */
+const TAKEOFF_ACCEL = 6;
+/** Braking on the final approach, m/s squared. */
+const LAND_BRAKE = 12;
+/** Slowest the drone is flown, m/s; keeps the steering maths finite as it builds speed. */
+const MIN_SPEED = 6;
+
+/**
+ * Altitude after limiting vertical acceleration, so climbs and descents ease in and out. It may lag the
+ * controller's demand, but never drops below half the demanded clearance above the ground.
+ */
+const smoothHeight = (
+  s: Snapshot,
+  terrain: Terrain,
+  cfg: Config,
+  py: number,
+  demanded: number,
+  x: number,
+  z: number,
+  dt: number,
+): number => {
+  const climb = smoothClimb(
+    s.drone.climb ?? 0,
+    (demanded - py) / dt,
+    dt,
+    cfg.mode === 'sortie' ? 1 : AGILE_CLIMB_FACTOR,
+  );
+  const smoothed = py + climb * dt;
+  const g = Math.max(terrain.waterLevel, groundBeneath(terrain, x, z, footprintFor(cfg)));
+  if (demanded <= g) return demanded;
+  // A sortie keeps its full minimum clearance; the small FPV modes may lag by up to half of theirs.
+  const floor =
+    cfg.mode === 'sortie' ? Math.min(demanded, g + MIN_CLEARANCE) : g + 0.5 * (demanded - g);
+  return Math.max(smoothed, floor);
+};
+
 const fly = (
   s: Snapshot,
   terrain: Terrain,
@@ -344,7 +389,9 @@ const fly = (
   const dx = aim[0] - px;
   const dz = aim[2] - pz;
   const distance = Math.hypot(dx, dz);
-  const speed = speedFor(cfg);
+  const cruise = speedFor(cfg);
+  // Speed builds up from the pad rather than starting at full cruise.
+  const speed = Math.max(MIN_SPEED, approach(s.drone.speed ?? MIN_SPEED, cruise, SPEED_ACCEL * dt));
   const gust = gustAt(s.time, s.weather.rain);
   // On a track the autopilot points into the wind by the crab angle that holds its line (it is told the wind).
   // On a forest run the trunks and limbs around the drone are what it steers through.
@@ -395,7 +442,14 @@ const fly = (
   const heading =
     distance < 1e-6
       ? s.drone.heading
-      : turnTowards(s.drone.heading, course - crab, turnRateFor(cfg, MAX_TURN_RATE) * dt);
+      : turnSmoothly(
+          s.drone.heading,
+          s.drone.yawRate ?? 0,
+          course - crab,
+          turnRateFor(cfg, MAX_TURN_RATE),
+          dt,
+          cfg.mode === 'sortie' ? YAW_ACCEL_PER_RATE : AGILE_YAW_ACCEL_PER_RATE,
+        ).heading;
   const air: Vec2 = [Math.cos(heading) * speed, Math.sin(heading) * speed];
   const nx = px + (air[0] + cfg.windX + gust[0]) * dt;
   const nz = pz + (air[1] + cfg.windZ + gust[1]) * dt;
@@ -421,7 +475,7 @@ const fly = (
             dt,
             (s.lane ?? 0) * LANE_SPACING + separationLift(s, others),
           );
-  const pos: Vec3 = [nx, ny, nz];
+  const pos: Vec3 = [nx, smoothHeight(s, terrain, cfg, py, ny, nx, nz, dt), nz];
   const through = cfg.mode === 'track' ? gateFlown(s, terrain, pos) : undefined;
   return {
     pos,
@@ -441,7 +495,13 @@ const takeOff = (s: Snapshot, terrain: Terrain, dt: number): Motion => {
       ? Math.max(groundBeneath(terrain, px, pz, AIRFRAME_RADIUS), terrain.waterLevel) +
         TRACK_TAKEOFF
       : s.mission.home[1] + CLEARANCE;
-  const next = Math.min(top, py + TAKEOFF_CLIMB * dt);
+  // Spool up, then ease off as the hover height is reached.
+  const rate = approach(
+    s.drone.climb ?? 0,
+    Math.min(TAKEOFF_CLIMB, Math.max(0.8, 1.5 * (top - py))),
+    TAKEOFF_ACCEL * dt,
+  );
+  const next = Math.min(top, py + rate * dt);
   return holding(s, [px, next, pz], s.drone.heading, next >= top);
 };
 
@@ -449,10 +509,21 @@ const land = (s: Snapshot, terrain: Terrain, dt: number): Motion => {
   const [px, py, pz] = s.drone.pos;
   const [hx, hy, hz] = s.mission.home;
   const distance = Math.hypot(hx - px, hz - pz);
-  const stride = Math.min(distance, LAND_SPEED * dt);
+  // Brake smoothly onto the pad and ease the descent off just above the ground.
+  const speed = approach(
+    s.drone.speed ?? LAND_SPEED,
+    Math.min(LAND_SPEED, Math.max(1.5, Math.sqrt(2 * LAND_BRAKE * distance))),
+    LAND_BRAKE * dt,
+  );
+  const stride = Math.min(distance, speed * dt);
   const k = distance < 1e-6 ? 0 : stride / distance;
   const ground = Math.max(hy, terrain.heightAt(px, pz));
-  const ny = Math.max(ground, py - LAND_DESCENT * dt);
+  const sink = approach(
+    -(s.drone.climb ?? 0),
+    Math.min(LAND_DESCENT, Math.max(0.6, 1.2 * (py - ground))),
+    TAKEOFF_ACCEL * dt,
+  );
+  const ny = Math.max(ground, py - sink * dt);
   const velocity: Vec2 = [((hx - px) * k) / dt, ((hz - pz) * k) / dt];
   return {
     pos: [px + (hx - px) * k, ny, pz + (hz - pz) * k],
@@ -818,6 +889,13 @@ const stepAgent = (
       heading: motion.heading,
       pitch: attitude.pitch,
       roll: attitude.roll,
+      ...(flying && !motion.wreck
+        ? {
+            yawRate: wrapAngle(motion.heading - s.drone.heading) / dt,
+            climb: (motion.pos[1] - s.drone.pos[1]) / dt,
+            speed: motion.airSpeed,
+          }
+        : { yawRate: 0, climb: 0, speed: undefined }),
       ...(motion.wreck ? { crash: motion.wreck.crash } : {}),
     },
     ekf,

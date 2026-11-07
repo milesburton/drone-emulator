@@ -71,6 +71,8 @@ const OVERVIEW_HEIGHT = 420;
 const FOG_NEAR = 600;
 const FOG_FAR = 4200;
 const TINT_RATE = 3;
+/** Time constant of the drawn nose direction, seconds. */
+const HEADING_LAG = 0.12;
 const PAD_RADIUS = 8;
 /** How far past the pad's edge the finish flag stands. */
 const FLAG_GAP = 10;
@@ -385,6 +387,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     droneAt: new THREE.Vector3(),
     scale: 1,
     time: 0,
+    shownHeading: null as number | null,
   };
   const tintTarget = new THREE.Color();
 
@@ -655,10 +658,22 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     // A dead drone is not buffeted by the autopilot's wind model; it just falls.
     drone.position.copy(cache.droneAt);
     if (!crashed) drone.position.add(new THREE.Vector3(...wobble.offset).multiplyScalar(scale));
+    // The drawn heading trails the simulated one a little, so the nose never snaps when a turn begins.
+    const elapsed = s.time - cache.time;
+    const heading =
+      crashed || cache.shownHeading === null || elapsed <= 0 || elapsed > 0.5
+        ? s.drone.heading
+        : cache.shownHeading +
+          Math.atan2(
+            Math.sin(s.drone.heading - cache.shownHeading),
+            Math.cos(s.drone.heading - cache.shownHeading),
+          ) *
+            (1 - Math.exp(-elapsed / HEADING_LAG));
+    cache.shownHeading = heading;
     // The model faces +z; YXZ order applies roll, then pitch, then yaw. Three's +x rotation is nose-down.
     drone.rotation.set(
       -(s.drone.pitch + (crashed ? 0 : wobble.pitch)),
-      Math.PI / 2 - s.drone.heading + (crashed ? 0 : wobble.yaw),
+      Math.PI / 2 - heading + (crashed ? 0 : wobble.yaw),
       s.drone.roll + (crashed ? 0 : wobble.roll),
       'YXZ',
     );

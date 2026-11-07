@@ -54,6 +54,12 @@ export interface Drone {
   readonly pitch: number;
   /** Bank in radians, right wing down positive; follows the turn rate. */
   readonly roll: number;
+  /** Yaw rate in rad/s; ramps rather than jumps. */
+  readonly yawRate?: number;
+  /** Vertical speed in m/s, up positive; ramps rather than jumps. */
+  readonly climb?: number;
+  /** Speed through the air in m/s; ramps up from the pad. */
+  readonly speed?: number;
   /** Present from the moment power is lost until the wreck is collected. */
   readonly crash?: Crash;
 }
