@@ -6,7 +6,7 @@ import { gateAt, trackRoute, TRACK_SPEED } from './trackFlight';
 import type { Config, Snapshot } from './types';
 
 const DT = 0.05;
-const cfgFor = (seed: number): Config => ({ ...defaultConfig, mode: 'track', seed });
+const cfgFor = (seed: number): Config => ({ ...defaultConfig, mode: 'track', seed, rivals: 0 });
 const run = (s: Snapshot, terrain: ReturnType<typeof createTerrain>, seconds: number): Snapshot =>
   Array.from({ length: Math.round(seconds / DT) }).reduce<Snapshot>(
     (acc) => step(acc, terrain, DT),

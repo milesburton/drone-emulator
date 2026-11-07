@@ -23,6 +23,7 @@ const cfgFor = (seed: number): Config => ({
   mode: 'run',
   biome: 'forest',
   seed,
+  rivals: 0,
 });
 const SEEDS = [123, 19, 7, 42, 1337];
 

@@ -775,7 +775,7 @@ describe('map character', () => {
 });
 
 describe('mission', () => {
-  const calm = { ...defaultConfig, windX: 0, windZ: 0 };
+  const calm = { ...defaultConfig, windX: 0, windZ: 0, rivals: 0 };
   const terrain = createTerrain(calm);
   const start = createSnapshot(calm, terrain);
   const tick = (s: Snapshot): Snapshot => step(s, terrain, 0.05);

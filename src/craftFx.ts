@@ -6,10 +6,12 @@ import type { Terrain } from './terrain';
 const ROTOR_SPEED = 60;
 const DARK = new THREE.MeshLambertMaterial({ color: 0x24262b });
 
-interface Model {
+export interface Model {
   readonly group: THREE.Group;
   /** Spinning parts; alternate ones turn opposite ways. */
   readonly spinners: readonly THREE.Object3D[];
+  /** Material of the body, where it can be recoloured. */
+  readonly tint?: THREE.MeshLambertMaterial;
 }
 
 const paint = (hex: number): THREE.MeshLambertMaterial =>
@@ -19,15 +21,15 @@ const paint = (hex: number): THREE.MeshLambertMaterial =>
   });
 
 /** The standard quadcopter, recoloured so it reads as a different craft from the mission drone. */
-const buildQuad = (): Model => {
+export const buildQuad = (): Model => {
   const { group, rotors, tint } = buildDrone();
   tint.color.setHex(0xf2a33a);
   tint.emissive.setHex(0x4a3010);
-  return { group, spinners: rotors };
+  return { group, spinners: rotors, tint };
 };
 
 /** Eight arms round a flat hub, a rotor on each. Faces +z. */
-const buildOcto = (): Model => {
+export const buildOcto = (): Model => {
   const group = new THREE.Group();
   const frame = paint(0x3a8f6b);
   group.add(new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 1.4, 8), frame));
@@ -50,7 +52,7 @@ const buildOcto = (): Model => {
     group.add(arm, rotor);
     return rotor;
   });
-  return { group, spinners };
+  return { group, spinners, tint: frame };
 };
 
 /** A high-wing RC trainer with a nose propeller. Faces +z. */

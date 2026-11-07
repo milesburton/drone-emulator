@@ -3,6 +3,8 @@ import type { Vec3 } from './types';
 
 /** Cruise height above the ground the drone aims for. */
 export const CLEARANCE = 40;
+/** Vertical gap between the cruise lanes of different pilots in a sortie, a little over one airframe's reach either way. */
+export const LANE_SPACING = 16;
 /** The drone is never allowed closer to the ground than this. */
 export const MIN_CLEARANCE = 15;
 /** How far ahead, in metres, the terrain is scanned for rises. */
@@ -54,8 +56,10 @@ export const nextAltitude = (
   z: number,
   heading: number,
   dt: number,
+  lift = 0,
 ): number => {
-  const wanted = (targetAltitude(terrain, x, z, heading) - y) * Math.min(1, dt * CLIMB_RESPONSE);
+  const wanted =
+    (targetAltitude(terrain, x, z, heading) + lift - y) * Math.min(1, dt * CLIMB_RESPONSE);
   const eased = y + Math.max(-MAX_DESCENT * dt, Math.min(MAX_CLIMB * dt, wanted));
   return Math.max(eased, groundBeneath(terrain, x, z) + MIN_CLEARANCE);
 };

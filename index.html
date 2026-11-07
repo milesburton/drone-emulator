@@ -74,6 +74,32 @@
         font-weight: 600;
         cursor: pointer;
       }
+      #standings {
+        position: fixed;
+        right: 12px;
+        top: 12px;
+        padding: 8px 12px;
+        border-radius: 12px;
+        background: var(--panel);
+        font:
+          11px/1.5 ui-monospace,
+          monospace;
+        pointer-events: none;
+        user-select: none;
+      }
+      #standings:empty {
+        display: none;
+      }
+      #standings .me {
+        font-weight: 700;
+      }
+      #standings i {
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        margin-right: 6px;
+      }
       #cluster {
         position: fixed;
         left: 50%;
@@ -195,6 +221,8 @@
       <input id="windZ" type="range" min="-20" max="20" step="1" />
       <label for="terrainScale">Terrain scale <span id="terrainScale-value"></span> m</label>
       <input id="terrainScale" type="range" min="10" max="150" step="5" />
+      <label for="rivals">Rival pilots <span id="rivals-value"></span></label>
+      <input id="rivals" type="range" min="0" max="7" step="1" />
       <label for="mode">Mode</label>
       <select id="mode"></select>
       <label for="biome">Biome</label>
@@ -217,6 +245,7 @@
         down); release to return to the drone.
       </div>
     </div>
+    <div id="standings" aria-hidden="true"></div>
     <div id="cluster" aria-hidden="true">
       <div class="group">
         <div id="status" data-f="status"></div>

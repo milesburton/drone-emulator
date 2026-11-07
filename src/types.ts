@@ -19,6 +19,8 @@ export interface Config {
   /** A winding river that the drone can follow. */
   readonly river: boolean;
   readonly roads: boolean;
+  /** Other pilots sharing the map, each flying its own sorties from its own pad (0 = solo). */
+  readonly rivals: number;
 }
 
 export interface Cloud {
@@ -128,16 +130,38 @@ export interface EkfState {
 
 export type PathChoice = 'river' | number;
 
-export interface Snapshot {
-  readonly time: number;
-  /** State of the seeded RNG; every random draw returns the next state. */
+/** Everything that is one pilot's own: its drone, estimator, route and mission. */
+export interface Agent {
+  /** State of the agent's own seeded RNG. */
   readonly rng: number;
-  readonly config: Config;
   readonly waypoints: readonly Vec3[];
   /** How a sortie route was chosen by hand: 'river', or the seed of a Random Path; absent for the map's own route. */
   readonly path?: PathChoice;
   readonly drone: Drone;
   readonly ekf: EkfState;
-  readonly weather: Weather;
   readonly mission: Mission;
+  /** Cruise lane in a sortie: this many lane-gaps above the usual height, so pilots' routes cross at different altitudes. 0 if absent. */
+  readonly lane?: number;
+}
+
+/** Who flies an agent. Only the autopilot exists so far; `human` is the seam for player input. */
+export type Control = 'auto' | 'human';
+
+/** Airframe of a rival: a quadcopter or an octocopter. */
+export type Airframe = 'quad' | 'octo';
+
+/** Another pilot on the map, flown by the same autopilot and mission rules as the main drone. */
+export interface Rival extends Agent {
+  /** 1-based; the main drone is the unnumbered pilot. */
+  readonly id: number;
+  readonly kind: Airframe;
+  readonly control: Control;
+}
+
+/** The world (time, map, weather) and the main drone, plus the rivals sharing the map. */
+export interface Snapshot extends Agent {
+  readonly time: number;
+  readonly config: Config;
+  readonly weather: Weather;
+  readonly rivals: readonly Rival[];
 }

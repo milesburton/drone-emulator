@@ -18,7 +18,8 @@ import {
 } from './sim';
 import { decodeConfig, decodePath, decodeStorm, encodeConfig } from './shareLink';
 import { createTerrain } from './terrain';
-import type { Config, Mode } from './types';
+import { standings } from './standings';
+import type { Config, Mode, Snapshot } from './types';
 
 const byId = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -28,6 +29,22 @@ const byId = <T extends HTMLElement>(id: string): T => {
 
 const view = createView(byId<HTMLCanvasElement>('scene'));
 const paintCluster = createCluster(byId('cluster'));
+const standingsPanel = byId('standings');
+let standingsKey = '';
+
+/** Shows every pilot's tally; rewritten only when the text changes, about once a second. */
+const paintStandings = (s: Snapshot): void => {
+  const rows = s.rivals.length === 0 ? [] : standings(s);
+  const html = rows
+    .map((r) => {
+      const best = r.best === null ? '' : ` ${r.best.toFixed(1)}s`;
+      return `<div class="${r.main ? 'me' : ''}"><i style="background:${r.colour}"></i>${r.name} ${r.icon} ${r.ok}✔ ${r.failed}✖ ${r.crashed}💥${best}</div>`;
+    })
+    .join('');
+  if (html === standingsKey) return;
+  standingsKey = html;
+  standingsPanel.innerHTML = html;
+};
 
 // The single owner of "current" state: the loop replaces these with new values.
 // The page's address carries the settings (see shareLink.ts), so a copied link opens the same map and mode.
@@ -57,21 +74,25 @@ const configure = (patch: Partial<Config>): void => {
   model.terrain = terrain;
 };
 
-const bindSlider = (id: string, key: keyof Config): void => {
+/** `onEvent` is 'change' for a control whose effect is costly, so dragging it does not rebuild on every step. */
+const bindSlider = (id: string, key: keyof Config, onEvent: 'input' | 'change' = 'input'): void => {
   const input = byId<HTMLInputElement>(id);
   const label = byId(`${id}-value`);
   input.value = String(initialConfig[key]);
   label.textContent = input.value;
   input.addEventListener('input', () => {
     label.textContent = input.value;
-    configure({ [key]: Number(input.value) });
+    if (onEvent === 'input') configure({ [key]: Number(input.value) });
   });
+  if (onEvent === 'change')
+    input.addEventListener('change', () => configure({ [key]: Number(input.value) }));
 };
 
 const riverPath = byId<HTMLButtonElement>('river-path');
 bindSlider('windX', 'windX');
 bindSlider('windZ', 'windZ');
 bindSlider('terrainScale', 'terrainScale');
+bindSlider('rivals', 'rivals', 'change');
 
 const bindToggle = (id: 'lakes' | 'river' | 'roads'): void => {
   const input = byId<HTMLInputElement>(id);
@@ -185,6 +206,7 @@ const frame = (last: number) => (now: number) => {
   groundSpeed += (moved - groundSpeed) * Math.min(dt * 4, 1);
   lastPos = [px, pz];
   paintCluster(readouts(model.snapshot, model.terrain, groundSpeed));
+  paintStandings(model.snapshot);
   requestAnimationFrame(frame(now));
 };
 requestAnimationFrame((now) => requestAnimationFrame(frame(now)));

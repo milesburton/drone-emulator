@@ -1,4 +1,4 @@
-import { CLEARANCE, nextAltitude, seatWaypoint } from './altitude';
+import { CLEARANCE, LANE_SPACING, nextAltitude, seatWaypoint } from './altitude';
 import { nextAttitude } from './attitude';
 import { hitsCraft } from './craft';
 import { beginCrash, fall, hasHitTerrain, hasImpacted } from './crash';
@@ -20,6 +20,7 @@ import {
   startMission,
   TAKEOFF_CLIMB,
 } from './mission';
+import { searchPad } from './pad';
 import { gaussians, next } from './rng';
 import {
   aimAt,
@@ -49,7 +50,17 @@ import { crossing, hitsGate, hitsObstacle, hitsSky, type GateResult } from './ga
 import { AIRFRAME_RADIUS, footprintFor } from './airframe';
 import { groundBeneath } from './altitude';
 import { createTerrain, FENCE_HEIGHT, terrainKey, type Terrain } from './terrain';
-import type { Config, Crash, CrashCause, Mission, Snapshot, Vec2, Vec3 } from './types';
+import type {
+  Agent,
+  Config,
+  Crash,
+  CrashCause,
+  Mission,
+  Rival,
+  Snapshot,
+  Vec2,
+  Vec3,
+} from './types';
 import { retarget, riverWaypoints } from './waypoints';
 import { clearStorm, createWeather, gustAt, startStorm, stepWeather } from './weather';
 
@@ -75,6 +86,7 @@ export const defaultConfig: Config = {
   lakes: true,
   river: true,
   roads: true,
+  rivals: 7,
 };
 
 /** International barometric formula, hPa at altitude `y` metres. */
@@ -96,6 +108,9 @@ const ground = { pitch: 0, roll: 0 } as const;
 const padFor = (cfg: Config, terrain: Terrain): Vec3 =>
   cfg.mode === 'track' ? trackPad(terrain, cfg.seed) : findPad(terrain, cfg.seed);
 
+/** The shared course of a track or run, started from this pilot's own pad instead of the main drone's. */
+const fromPad = (route: readonly Vec3[], home: Vec3): readonly Vec3[] => [home, ...route.slice(1)];
+
 /** A fresh route for this mode, with the advanced RNG. */
 const routeFor = (
   cfg: Config,
@@ -104,9 +119,9 @@ const routeFor = (
   home: Vec3,
 ): readonly [readonly Vec3[], number] =>
   cfg.mode === 'track'
-    ? [trackRoute(terrain, cfg.seed), rng]
+    ? [fromPad(trackRoute(terrain, cfg.seed), home), rng]
     : cfg.mode === 'run'
-      ? [runRoute(runFor(terrain, cfg.seed)), rng]
+      ? [fromPad(runRoute(runFor(terrain, cfg.seed)), home), rng]
       : planRoute(cfg, terrain, rng, home, AIR_SPEED);
 
 const startEkf = (pos: Vec3) =>
@@ -133,8 +148,95 @@ export const createSnapshot = (cfg: Config, terrain: Terrain): Snapshot => {
     weather,
     mission: startMission(home),
     ...onPad(home, waypoints),
+    rivals: makeRivals(cfg, terrain, home),
   };
 };
+
+/** Seconds between one rival's takeoff and the next, so they do not all leave the pads together. */
+export const START_STAGGER = 3;
+/** Metres between neighbouring pads in the grid round the main pad on a shared start (track and run). */
+export const PAD_SPACING = 4;
+const PAD_SLOTS: readonly (readonly [number, number])[] = [
+  [0, 1],
+  [0, -1],
+  [1, 0],
+  [-1, 0],
+  [1, 1],
+  [1, -1],
+  [-1, 1],
+  [-1, -1],
+];
+/** Metres between pads on the fallback grid for a sortie: more than two airframes' reach. */
+const SORTIE_PAD_SPACING = 28;
+/** Least distance between two sortie pads. */
+const PAD_SEPARATION = 60;
+const RIVAL_SALT = 0x9e3779b1;
+
+/** Pad for rival `i` (0-based): its own ground in a sortie, or a slot on the start line beside the main pad. */
+const rivalPad = (
+  cfg: Config,
+  terrain: Terrain,
+  i: number,
+  taken: readonly Vec3[],
+  base: Vec3,
+): Vec3 => {
+  if (cfg.mode === 'sortie') {
+    const searched = Array.from({ length: 6 }, (_, k) =>
+      searchPad(terrain, cfg.seed + (i + 1) * 7919 + k * 104729),
+    );
+    // Tight terrain offers few pads; failing a distant one, take a spot on a wide grid round the main pad.
+    const grid = PAD_SLOTS.map(([ahead, aside]): Vec3 => {
+      const x = base[0] + ahead * SORTIE_PAD_SPACING;
+      const z = base[2] + aside * SORTIE_PAD_SPACING;
+      return [x, terrain.heightAt(x, z), z];
+    });
+    const apart = (c: Vec3, least: number): boolean =>
+      taken.every((p) => Math.hypot(p[0] - c[0], p[2] - c[2]) >= least);
+    return (
+      searched.find((c) => apart(c, PAD_SEPARATION)) ??
+      [...searched, ...grid].find((c) => apart(c, SORTIE_PAD_SPACING * 0.9)) ??
+      grid[i % grid.length]
+    );
+  }
+  // A grid round the main pad, square to the first leg, so every pilot lines up on the first gate much as the main one does.
+  const route = routeFor(cfg, terrain, cfg.seed, base)[0];
+  const forward = headingTo(base, route[1]);
+  const [ahead, aside] = PAD_SLOTS[i % PAD_SLOTS.length];
+  const x = base[0] + (Math.cos(forward) * ahead - Math.sin(forward) * aside) * PAD_SPACING;
+  const z = base[2] + (Math.sin(forward) * ahead + Math.cos(forward) * aside) * PAD_SPACING;
+  return [x, terrain.heightAt(x, z), z];
+};
+
+/** The other pilots for this map: each has its own pad, route, RNG and battery, and leaves a little after the last. */
+export const makeRivals = (cfg: Config, terrain: Terrain, playerHome: Vec3): readonly Rival[] =>
+  Array.from({ length: cfg.rivals }).reduce<readonly Rival[]>((rivals, _, i) => {
+    const home = rivalPad(
+      cfg,
+      terrain,
+      i,
+      [playerHome, ...rivals.map((r) => r.mission.home)],
+      playerHome,
+    );
+    const [waypoints, rng] = routeFor(
+      cfg,
+      terrain,
+      (cfg.seed ^ RIVAL_SALT) + (i + 1) * 40503,
+      home,
+    );
+    return [
+      ...rivals,
+      {
+        id: i + 1,
+        lane: i + 1,
+        kind: i % 2 === 0 ? 'quad' : 'octo',
+        control: 'auto',
+        rng,
+        path: undefined,
+        ...onPad(home, waypoints),
+        mission: { ...startMission(home), groundLeft: GROUND_TIME + (i + 1) * START_STAGGER },
+      },
+    ];
+  }, []);
 
 interface Motion {
   readonly pos: Vec3;
@@ -181,7 +283,60 @@ const gateFlown = (s: Snapshot, terrain: Terrain, pos: Vec3): GateResult | null 
   return gate === null ? undefined : crossing(gate, s.drone.pos, pos);
 };
 
-const fly = (s: Snapshot, terrain: Terrain, dt: number, target: Vec3): Motion => {
+/** Pilots in the air within this many airframe reaches of a pad keep its owner from taking off. */
+const PAD_CLEAR_REACHES = 6;
+
+/** No other pilot in the air close to this pilot's pad. */
+const padClear = (s: Snapshot, others: readonly Nearby[]): boolean => {
+  const range = Math.max(20, PAD_CLEAR_REACHES * footprintFor(s.config));
+  const [hx, , hz] = s.mission.home;
+  return others.every(
+    (o) =>
+      Math.hypot(o.pos[0] - hx, o.pos[2] - hz) > range ||
+      !(AIRBORNE.has(o.phase) || (o.ready && o.lane < (s.lane ?? 0))),
+  );
+};
+
+/** Another pilot in the air, as the others see it. */
+interface Nearby {
+  readonly pos: Vec3;
+  readonly lane: number;
+  readonly phase: Mission['phase'];
+  /** On the pad with the countdown done: about to take off. */
+  readonly ready: boolean;
+}
+
+const AIRBORNE: ReadonlySet<Mission['phase']> = new Set([
+  'takeoff',
+  'cruise',
+  'returning',
+  'landing',
+]);
+
+const inAirNow = (others: readonly Nearby[]): readonly Nearby[] =>
+  others.filter((o) => AIRBORNE.has(o.phase));
+
+/** Pilots in a sortie keep apart by height: a pilot rises above each lower-lane pilot within this horizontal range. */
+export const SEPARATION_RANGE = 160;
+export const SEPARATION_LIFT = 20;
+
+const separationLift = (s: Snapshot, others: readonly Nearby[]): number =>
+  s.config.mode !== 'sortie'
+    ? 0
+    : SEPARATION_LIFT *
+      inAirNow(others).filter(
+        (o) =>
+          o.lane < (s.lane ?? 0) &&
+          Math.hypot(o.pos[0] - s.drone.pos[0], o.pos[2] - s.drone.pos[2]) < SEPARATION_RANGE,
+      ).length;
+
+const fly = (
+  s: Snapshot,
+  terrain: Terrain,
+  dt: number,
+  target: Vec3,
+  others: readonly Nearby[],
+): Motion => {
   const { config: cfg } = s;
   const [px, py, pz] = s.drone.pos;
   const gate = gateTarget(s, terrain);
@@ -257,7 +412,15 @@ const fly = (s: Snapshot, terrain: Terrain, dt: number, target: Vec3): Motion =>
             tunnelHold(runFor(terrain, cfg.seed).tunnels, s.drone.pos, s.drone.heading),
             dt,
           )
-        : nextAltitude(terrain, py, nx, nz, heading, dt);
+        : nextAltitude(
+            terrain,
+            py,
+            nx,
+            nz,
+            heading,
+            dt,
+            (s.lane ?? 0) * LANE_SPACING + separationLift(s, others),
+          );
   const pos: Vec3 = [nx, ny, nz];
   const through = cfg.mode === 'track' ? gateFlown(s, terrain, pos) : undefined;
   return {
@@ -320,7 +483,7 @@ const crash = (s: Snapshot, terrain: Terrain, dt: number): Motion => {
   };
 };
 
-const moveFor = (s: Snapshot, terrain: Terrain, dt: number): Motion => {
+const moveFor = (s: Snapshot, terrain: Terrain, dt: number, others: readonly Nearby[]): Motion => {
   const { phase } = s.mission;
   switch (phase) {
     case 'grounded':
@@ -332,9 +495,9 @@ const moveFor = (s: Snapshot, terrain: Terrain, dt: number): Motion => {
     case 'lost':
       return crash(s, terrain, dt);
     case 'returning':
-      return fly(s, terrain, dt, s.waypoints[0]);
+      return fly(s, terrain, dt, s.waypoints[0], others);
     case 'cruise':
-      return fly(s, terrain, dt, s.waypoints[s.drone.wp]);
+      return fly(s, terrain, dt, s.waypoints[s.drone.wp], others);
   }
 };
 
@@ -474,7 +637,12 @@ const timeLap = (s: Snapshot, terrain: Terrain): Mission => {
 };
 
 /** Phase changes that follow from where the drone has got to. */
-const transition = (s: Snapshot, motion: Motion, terrain: Terrain): Snapshot => {
+const transition = (
+  s: Snapshot,
+  motion: Motion,
+  terrain: Terrain,
+  others: readonly Nearby[],
+): Snapshot => {
   const m = s.mission;
   const { wp } = s.drone;
   const gust = gustAt(s.time, s.weather.rain);
@@ -487,12 +655,25 @@ const transition = (s: Snapshot, motion: Motion, terrain: Terrain): Snapshot => 
   const speed = speedFor(s.config);
   switch (m.phase) {
     case 'grounded':
-      return m.groundLeft <= 0 ? goTo('takeoff', { trip: 0, outcome: null }) : s;
+      // A pilot holds on the pad while another is in the air close by, so two never climb out together.
+      return m.groundLeft <= 0 && padClear(s, others)
+        ? goTo('takeoff', { trip: 0, outcome: null })
+        : s;
     case 'takeoff':
       return motion.arrived
         ? goTo('cruise', s.config.mode === 'run' ? { lapStart: s.time } : {})
         : s;
     case 'cruise': {
+      // With rivals on the course the run is one-way: out and back along one corridor would meet head-on in
+      // the tunnels, so a pilot who reaches the goal is collected from it, as a wreck is, and set down on its pad.
+      if (
+        s.config.mode === 'run' &&
+        s.config.rivals > 0 &&
+        wp === goalIndex(runFor(terrain, s.config.seed)) &&
+        motion.arrived
+      ) {
+        return touchDown({ ...s, mission: timeLap(s, terrain) }, terrain);
+      }
       if (wp === 0 && motion.arrived) return goTo('landing');
       if (isLost(m.battery, s.drone.pos, m.home, s.waypoints[wp], wind, s.weather.rain, speed)) {
         return powerLoss();
@@ -535,9 +716,20 @@ const strikeCause = (
   terrain: Terrain,
   inAir: boolean,
   aloft: boolean,
+  others: readonly Nearby[],
 ): CrashCause | null => {
   const { pos } = s.drone;
   if (aloft && hitsCraft(pos, s.config.seed, s.time, terrain)) return 'craft';
+  // Two pilots whose airframes touch both crash: each is checked against the other's position.
+  const reach = 2 * footprintFor(s.config);
+  if (
+    aloft &&
+    inAirNow(others).some(
+      (o) => Math.hypot(o.pos[0] - pos[0], o.pos[1] - pos[1], o.pos[2] - pos[2]) < reach,
+    )
+  ) {
+    return 'craft';
+  }
   const arena = terrain.arena;
   if (
     aloft &&
@@ -573,17 +765,22 @@ const strikeCause = (
   return null;
 };
 
-export const step = (s: Snapshot, terrain: Terrain, dt: number): Snapshot => {
+const stepAgent = (
+  s: Snapshot,
+  terrain: Terrain,
+  dt: number,
+  others: readonly Nearby[],
+): Snapshot => {
   const { config: cfg } = s;
   const { phase } = s.mission;
   const inAir = phase === 'cruise' || phase === 'returning';
   const aloft = inAir || phase === 'takeoff' || phase === 'landing';
-  const cause = strikeCause(s, terrain, inAir, aloft);
+  const cause = strikeCause(s, terrain, inAir, aloft, others);
   if (cause !== null) {
     const gust = gustAt(s.time, s.weather.rain);
     return loseFlight(s, [cfg.windX + gust[0], cfg.windZ + gust[1]], 'impact', cause);
   }
-  const motion = moveFor(s, terrain, dt);
+  const motion = moveFor(s, terrain, dt, others);
   const flying = s.mission.phase !== 'grounded' && s.mission.phase !== 'lost';
   const attitude = motion.wreck
     ? motion.wreck
@@ -634,7 +831,52 @@ export const step = (s: Snapshot, terrain: Terrain, dt: number): Snapshot => {
       hasImpacted(s.drone.crash),
     ),
   };
-  return transition(moved, motion, terrain);
+  return transition(moved, motion, terrain, others);
+};
+
+/** A rival's own state as a snapshot of its own world, so the one flight model serves every pilot. */
+const viewOf = (s: Snapshot, a: Agent): Snapshot => ({
+  ...s,
+  rng: a.rng,
+  waypoints: a.waypoints,
+  path: a.path,
+  lane: a.lane,
+  drone: a.drone,
+  ekf: a.ekf,
+  mission: a.mission,
+  rivals: [],
+});
+
+const agentOf = (s: Snapshot): Agent => ({
+  rng: s.rng,
+  waypoints: s.waypoints,
+  path: s.path,
+  lane: s.lane,
+  drone: s.drone,
+  ekf: s.ekf,
+  mission: s.mission,
+});
+
+/**
+ * Advances the world one step: the main drone and every rival fly by the same rules. Weather and
+ * time are the world's and move once, with the main drone; pilots in the air can hit each other.
+ */
+export const step = (s: Snapshot, terrain: Terrain, dt: number): Snapshot => {
+  if (s.rivals.length === 0) return stepAgent(s, terrain, dt, []);
+  const pilots: readonly Agent[] = [s, ...s.rivals];
+  const nearby = pilots.map((a): Nearby => ({
+    pos: a.drone.pos,
+    lane: a.lane ?? 0,
+    phase: a.mission.phase,
+    ready: a.mission.phase === 'grounded' && a.mission.groundLeft <= 0,
+  }));
+  const othersOf = (k: number): readonly Nearby[] => nearby.filter((_, j) => j !== k);
+  const main = stepAgent(s, terrain, dt, othersOf(0));
+  const rivals = s.rivals.map((r, i): Rival => ({
+    ...r,
+    ...agentOf(stepAgent(viewOf(s, r), terrain, dt, othersOf(i + 1))),
+  }));
+  return { ...main, rivals };
 };
 
 /** Sortie and track use different pads and routes, so changing mode starts a fresh flight from the new pad. */
@@ -653,6 +895,7 @@ const switchMode = (
       config,
       path: undefined,
       ...onPad(home, waypoints),
+      rivals: makeRivals(config, terrain, home),
       mission: {
         ...startMission(home),
         successes,
@@ -681,7 +924,11 @@ export const applyConfig = (
       config,
       terrainKey(config) === terrainKey(s.config) ? terrain : createTerrain(config),
     );
-  if (terrainKey(config) === terrainKey(s.config)) return [{ ...s, config }, terrain];
+  if (terrainKey(config) === terrainKey(s.config)) {
+    const rivals =
+      config.rivals === s.config.rivals ? s.rivals : makeRivals(config, terrain, s.mission.home);
+    return [{ ...s, config, rivals }, terrain];
+  }
   const next = createTerrain(config);
   const home = padFor(config, next);
   const grounded = s.mission.phase === 'grounded';
@@ -698,6 +945,7 @@ export const applyConfig = (
       ],
       drone: grounded ? { ...s.drone, pos: home } : s.drone,
       mission: { ...s.mission, home },
+      rivals: makeRivals(config, next, home),
     },
     next,
   ];
@@ -735,6 +983,7 @@ export const newMap = (s: Snapshot, seed: number): readonly [Snapshot, Terrain] 
       path: undefined,
       drone: fresh.drone,
       ekf: fresh.ekf,
+      rivals: fresh.rivals,
       mission: { ...fresh.mission, successes, failures, lost, crashed, totalTrip, laps, bestLap },
     },
     terrain,

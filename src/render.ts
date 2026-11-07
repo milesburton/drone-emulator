@@ -9,6 +9,7 @@ import { runFor } from './forestRun';
 import { animalsFor } from './animals';
 import { buildAnimals, buildRun, type AnimalsView } from './runModel';
 import { buildCraftFx } from './craftFx';
+import { buildRivalFx } from './rivalFx';
 import { buildCrashFx } from './crashFx';
 import { MICRO_SCALE } from './airframe';
 import { buildDrone } from './droneModel';
@@ -296,6 +297,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   scene.add(airliners.group);
   const fleet = buildCraftFx();
   scene.add(fleet.group);
+  const rivals = buildRivalFx();
+  scene.add(rivals.group);
 
   const clouds = Array.from({ length: CLOUD_COUNT }, buildCloud);
   clouds.forEach((c) => scene.add(c));
@@ -681,6 +684,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
       scale,
       terrain.heightAt(x, z) <= terrain.waterLevel,
     );
+    rivals.update(s, terrain, scale);
     const now = performance.now();
     const dt = Math.min((now - look.last) / 1000, 0.1);
     look.last = now;

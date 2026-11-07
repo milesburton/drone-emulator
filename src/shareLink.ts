@@ -7,6 +7,7 @@ const MODES: readonly Mode[] = ['sortie', 'track', 'run'];
 /** Slider limits, matching the controls in the page. */
 const WIND: readonly [number, number] = [-20, 20];
 const SCALE: readonly [number, number] = [10, 150];
+const RIVALS: readonly [number, number] = [0, 7];
 
 const clamp = ([lo, hi]: readonly [number, number], n: number): number =>
   Math.min(hi, Math.max(lo, n));
@@ -37,6 +38,7 @@ export const encodeConfig = (cfg: Config, defaults: Config, extras: LinkExtras =
       ? ['wind', `${cfg.windX},${cfg.windZ}`]
       : null,
     cfg.terrainScale !== defaults.terrainScale ? ['scale', String(cfg.terrainScale)] : null,
+    cfg.rivals !== defaults.rivals ? ['rivals', String(cfg.rivals)] : null,
     cfg.lakes !== defaults.lakes ? ['lakes', cfg.lakes ? '1' : '0'] : null,
     cfg.river !== defaults.river ? ['river', cfg.river ? '1' : '0'] : null,
     cfg.roads !== defaults.roads ? ['roads', cfg.roads ? '1' : '0'] : null,
@@ -60,6 +62,7 @@ export const decodeConfig = (fragment: string): Partial<Config> => {
   const biome = params.get('biome');
   const [wx, wz] = (params.get('wind') ?? '').split(',').map((v) => whole(v));
   const scale = whole(params.get('scale'));
+  const rivals = whole(params.get('rivals'));
   const flag = (k: string): boolean | undefined => {
     const v = params.get(k);
     return v === '1' ? true : v === '0' ? false : undefined;
@@ -81,6 +84,7 @@ export const decodeConfig = (fragment: string): Partial<Config> => {
         : undefined,
     ],
     ['terrainScale', scale !== null ? clamp(SCALE, scale) : undefined],
+    ['rivals', rivals !== null ? clamp(RIVALS, rivals) : undefined],
     ['lakes', flag('lakes')],
     ['river', flag('river')],
     ['roads', flag('roads')],
