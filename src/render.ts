@@ -14,6 +14,7 @@ import { buildCrashFx } from './crashFx';
 import { MICRO_SCALE } from './airframe';
 import { buildDrone } from './droneModel';
 import { buildAirlinerFx } from './airlinersFx';
+import { bankFor } from './attitude';
 import { buildFlag, faceDownwind } from './flags';
 import { STATUS_STYLE, statusOf } from './status';
 import { disturbance, windStrength } from './sway';
@@ -72,7 +73,11 @@ const FOG_NEAR = 600;
 const FOG_FAR = 4200;
 const TINT_RATE = 3;
 /** Time constant of the drawn nose direction, seconds. */
-const HEADING_LAG = 0.12;
+const HEADING_LAG = 0.3;
+/** The agile FPV craft turns sharply, so its drawn nose follows more closely. */
+const AGILE_HEADING_LAG = 0.15;
+/** Time constant of the drawn bank and pitch, seconds. */
+const POSE_LAG = 0.3;
 const PAD_RADIUS = 8;
 /** How far past the pad's edge the finish flag stands. */
 const FLAG_GAP = 10;
@@ -388,6 +393,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     scale: 1,
     time: 0,
     shownHeading: null as number | null,
+    shownRoll: 0,
+    shownPitch: 0,
   };
   const tintTarget = new THREE.Color();
 
@@ -669,13 +676,27 @@ export const createView = (canvas: HTMLCanvasElement): View => {
             Math.sin(s.drone.heading - cache.shownHeading),
             Math.cos(s.drone.heading - cache.shownHeading),
           ) *
-            (1 - Math.exp(-elapsed / HEADING_LAG));
+            (1 -
+              Math.exp(-elapsed / (s.config.mode === 'sortie' ? HEADING_LAG : AGILE_HEADING_LAG)));
+    // Bank follows the turn actually drawn (coordinated turn), and both angles ease rather than step.
+    const drawnRate =
+      cache.shownHeading === null || elapsed <= 0 || elapsed > 0.5
+        ? 0
+        : Math.atan2(
+            Math.sin(heading - cache.shownHeading),
+            Math.cos(heading - cache.shownHeading),
+          ) / elapsed;
+    const ease = elapsed > 0 && elapsed <= 0.5 ? 1 - Math.exp(-elapsed / POSE_LAG) : 1;
+    const flying = s.drone.pos[1] - terrain.heightAt(x, z) > 1;
+    const rollGoal = flying ? bankFor(s.drone.speed ?? 0, drawnRate) : s.drone.roll;
+    cache.shownRoll += (rollGoal - cache.shownRoll) * ease;
+    cache.shownPitch += (s.drone.pitch - cache.shownPitch) * ease;
     cache.shownHeading = heading;
     // The model faces +z; YXZ order applies roll, then pitch, then yaw. Three's +x rotation is nose-down.
     drone.rotation.set(
-      -(s.drone.pitch + (crashed ? 0 : wobble.pitch)),
+      -((crashed ? s.drone.pitch : cache.shownPitch) + (crashed ? 0 : wobble.pitch)),
       Math.PI / 2 - heading + (crashed ? 0 : wobble.yaw),
-      s.drone.roll + (crashed ? 0 : wobble.roll),
+      (crashed ? s.drone.roll : cache.shownRoll) + (crashed ? 0 : wobble.roll),
       'YXZ',
     );
     // Fade the body towards the colour of the current state rather than snapping to it.
