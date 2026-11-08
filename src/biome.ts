@@ -23,6 +23,8 @@ export interface BiomeProfile {
   readonly palette: Palette;
   /** Multiplies how many trees grow; 0 for none. */
   readonly treeDensity: number;
+  /** Multiplies how thickly grass tufts grow on dry, gentle ground; 0 for bare ground. */
+  readonly grassDensity: number;
   /** Reshapes the seed's character so the biome keeps its look whatever the seed. */
   readonly shape: (c: MapCharacter) => MapCharacter;
 }
@@ -38,6 +40,7 @@ const valley: BiomeProfile = {
     bands: [0.03, 0.12, 0.5, 0.7],
   },
   treeDensity: 1,
+  grassDensity: 1,
   shape: (c) => c,
 };
 
@@ -53,6 +56,7 @@ const desert: BiomeProfile = {
     bands: [0.03, 0.2, 0.55, 0.8],
   },
   treeDensity: 0.06,
+  grassDensity: 0.08,
   shape: (c) => ({
     ...c,
     hillFrequency: c.hillFrequency * 0.6,
@@ -75,6 +79,7 @@ const mountain: BiomeProfile = {
     bands: [0.03, 0.1, 0.38, 0.55],
   },
   treeDensity: 0.5,
+  grassDensity: 0.6,
   shape: (c) => ({
     ...c,
     hillFrequency: c.hillFrequency * 1.25,
@@ -94,6 +99,7 @@ const forest: BiomeProfile = {
     bands: [0.03, 0.15, 0.62, 0.85],
   },
   treeDensity: 1.9,
+  grassDensity: 0.9,
   shape: (c) => ({
     ...c,
     hillFrequency: c.hillFrequency * 1.1,

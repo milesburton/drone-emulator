@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { ghostPath } from './ghostPath';
+import { buildGrass } from './grassModel';
+import { placeGrass } from './grass';
 import { buildBridges } from './bridgeModel';
 import { hasImpacted } from './crash';
 import { trackFor } from './track';
@@ -364,6 +366,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
   const laneMap = laneTexture();
   const forest = new THREE.Group();
   scene.add(forest);
+  const grass = new THREE.Group();
+  scene.add(grass);
 
   const traffic = new THREE.Group();
   scene.add(traffic);
@@ -498,6 +502,11 @@ export const createView = (canvas: HTMLCanvasElement): View => {
       disposeObject(m);
     });
     forest.add(...buildForest(placeTrees(terrain, home)).children);
+    grass.children.slice().forEach((m) => {
+      grass.remove(m);
+      disposeObject(m);
+    });
+    grass.add(...buildGrass(placeGrass(terrain, home), terrain).children);
     cache.forestTerrain = terrain;
     cache.forestHome = home;
   };
@@ -515,6 +524,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     pathLine.visible = !on && !running;
     if (cache.tether) cache.tether.visible = pathLine.visible;
     forest.visible = !running;
+    grass.visible = !running;
     const runKey = running ? `${s.config.seed}` : null;
     if (runKey !== cache.runKey || terrain !== cache.runTerrain) {
       runGroup.children.slice().forEach((m) => {
