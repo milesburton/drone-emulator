@@ -619,7 +619,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     syncForest(terrain, s.mission.home);
     syncTrack(s, terrain);
     if (running(s)) cache.animals?.update(terrain, s.time);
-    if (cache.fleet) {
+    traffic.visible = s.config.traffic;
+    if (cache.fleet && s.config.traffic) {
       // A restart rewinds the clock; start the traffic over rather than running it backwards.
       const base = cache.fleet.time > s.time ? createFleet(terrain, cache.drivers) : cache.fleet;
       cache.fleet = advanceTo(terrain, cache.drivers, base, s.time);

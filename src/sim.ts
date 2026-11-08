@@ -96,6 +96,7 @@ export const defaultConfig: Config = {
   river: true,
   roads: true,
   rivals: 7,
+  traffic: true,
 };
 
 /** International barometric formula, hPa at altitude `y` metres. */

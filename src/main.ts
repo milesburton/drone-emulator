@@ -16,7 +16,7 @@ import {
   calmStorm,
   triggerStorm,
 } from './sim';
-import { decodeConfig, decodePath, decodeStorm, encodeConfig } from './shareLink';
+import { decodeConfig, decodeElapsed, decodePath, decodeStorm, encodeConfig } from './shareLink';
 import { createTerrain } from './terrain';
 import { standings } from './standings';
 import type { Config, Mode, Snapshot } from './types';
@@ -94,7 +94,7 @@ bindSlider('windZ', 'windZ');
 bindSlider('terrainScale', 'terrainScale');
 bindSlider('rivals', 'rivals', 'change');
 
-const bindToggle = (id: 'lakes' | 'river' | 'roads'): void => {
+const bindToggle = (id: 'lakes' | 'river' | 'roads' | 'traffic'): void => {
   const input = byId<HTMLInputElement>(id);
   input.checked = initialConfig[id];
   input.addEventListener('change', () => {
@@ -127,6 +127,7 @@ biomeSelect.addEventListener('change', () => {
 bindToggle('lakes');
 bindToggle('river');
 bindToggle('roads');
+bindToggle('traffic');
 
 // Holding Shift is free look (Ctrl+W closes the tab and can't be blocked); letting go snaps back to the drone.
 window.addEventListener('keydown', (e) => {
@@ -189,13 +190,32 @@ let groundSpeed = 0;
 // Keep the address in step with the settings, writing only when it changes.
 let shown = '';
 const syncAddress = (): void => {
-  const next = `#${encodeConfig(model.snapshot.config, defaultConfig, { storm: model.snapshot.weather.phase === 'storm', path: model.snapshot.path })}`;
+  const next = `#${encodeConfig(model.snapshot.config, defaultConfig, { storm: model.snapshot.weather.phase === 'storm', path: model.snapshot.path, elapsed: model.snapshot.time })}`;
   if (next === shown) return;
   shown = next;
   window.history.replaceState(null, '', next);
 };
 
+// A link carries how far into the run it was taken; the simulation is run forward to there in fixed steps,
+// a slice per frame so the page stays responsive. Pilots then stand where a replay of the same steps puts them.
+const FAST_STEP = 0.05;
+const SLICE_MS = 30;
+let catchUp = decodeElapsed(window.location.hash);
+const catchUpNote = byId('catch-up');
+
 const frame = (last: number) => (now: number) => {
+  if (catchUp > 0) {
+    const started = performance.now();
+    while (catchUp > 0 && performance.now() - started < SLICE_MS) {
+      model.snapshot = step(model.snapshot, model.terrain, FAST_STEP);
+      catchUp -= FAST_STEP;
+    }
+    catchUpNote.hidden = catchUp <= 0;
+    catchUpNote.textContent = `Catching up… ${Math.max(0, Math.ceil(catchUp))} s to go`;
+    view.draw(model.snapshot, model.terrain);
+    requestAnimationFrame(frame(now));
+    return;
+  }
   const dt = Math.min((now - last) / 1000, 0.05);
   model.snapshot = step(model.snapshot, model.terrain, dt);
   view.draw(model.snapshot, model.terrain);

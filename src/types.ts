@@ -21,6 +21,8 @@ export interface Config {
   readonly roads: boolean;
   /** Other pilots sharing the map, each flying its own sorties from its own pad (0 = solo). */
   readonly rivals: number;
+  /** Cars, trucks and the like on the roads. */
+  readonly traffic: boolean;
 }
 
 export interface Cloud {

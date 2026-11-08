@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Drone Emulator</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2310141c'/%3E%3Cpath d='M9 9l14 14M23 9L9 23' stroke='%23ffd60a' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='9' cy='9' r='3.5' fill='none' stroke='%23e8edf4' stroke-width='2'/%3E%3Ccircle cx='23' cy='9' r='3.5' fill='none' stroke='%23e8edf4' stroke-width='2'/%3E%3Ccircle cx='9' cy='23' r='3.5' fill='none' stroke='%23e8edf4' stroke-width='2'/%3E%3Ccircle cx='23' cy='23' r='3.5' fill='none' stroke='%23e8edf4' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%23ffd60a'/%3E%3C/svg%3E"
+    />
     <style>
       :root {
         --panel: rgba(16, 20, 28, 0.82);
@@ -86,6 +90,23 @@
           monospace;
         pointer-events: none;
         user-select: none;
+      }
+      #catch-up {
+        position: fixed;
+        left: 50%;
+        top: 12px;
+        transform: translateX(-50%);
+        padding: 6px 14px;
+        border-radius: 12px;
+        background: var(--panel);
+        font:
+          12px/1.4 ui-monospace,
+          monospace;
+        pointer-events: none;
+        user-select: none;
+      }
+      #catch-up[hidden] {
+        display: none;
       }
       #standings:empty {
         display: none;
@@ -230,6 +251,7 @@
       <label><input id="lakes" type="checkbox" /> Lakes</label>
       <label><input id="river" type="checkbox" /> River</label>
       <label><input id="roads" type="checkbox" /> Roads</label>
+      <label><input id="traffic" type="checkbox" /> Vehicles</label>
       <label><input id="storm" type="checkbox" /> Storm</label>
       <label for="seed">Map seed</label>
       <div class="row">
@@ -246,6 +268,7 @@
       </div>
     </div>
     <div id="standings" aria-hidden="true"></div>
+    <div id="catch-up" hidden></div>
     <div id="cluster" aria-hidden="true">
       <div class="group">
         <div id="status" data-f="status"></div>

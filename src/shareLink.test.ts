@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { decodeConfig, decodePath, decodeStorm, encodeConfig } from './shareLink';
+import {
+  decodeConfig,
+  decodeElapsed,
+  decodePath,
+  decodeStorm,
+  encodeConfig,
+  MAX_ELAPSED,
+} from './shareLink';
 import { defaultConfig } from './sim';
 import type { Config } from './types';
 
@@ -65,5 +72,25 @@ describe('share link', () => {
     expect(decodePath('#path=42')).toBe(42);
     expect(decodePath('#path=nope')).toBeUndefined();
     expect(decodePath('#seed=1')).toBeUndefined();
+  });
+});
+
+describe('vehicles and elapsed time in the link', () => {
+  it('round-trips the vehicles toggle and writes it only when it differs', () => {
+    expect(encodeConfig(defaultConfig, defaultConfig)).not.toContain('traffic');
+    const off = encodeConfig({ ...defaultConfig, traffic: false }, defaultConfig);
+    expect(off).toContain('traffic=0');
+    expect(decodeConfig(`#${off}`).traffic).toBe(false);
+    expect(decodeConfig('#traffic=1').traffic).toBe(true);
+  });
+
+  it('carries whole elapsed seconds, clamped, and ignores nonsense', () => {
+    expect(encodeConfig(defaultConfig, defaultConfig, { elapsed: 42.9 })).toContain('t=42');
+    expect(encodeConfig(defaultConfig, defaultConfig, { elapsed: 0.4 })).not.toContain('t=');
+    expect(decodeElapsed('#seed=7&t=42')).toBe(42);
+    expect(decodeElapsed('#t=99999')).toBe(MAX_ELAPSED);
+    expect(decodeElapsed('#t=-5')).toBe(0);
+    expect(decodeElapsed('#t=abc')).toBe(0);
+    expect(decodeElapsed('')).toBe(0);
   });
 });

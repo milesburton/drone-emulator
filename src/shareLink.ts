@@ -27,6 +27,8 @@ export interface LinkExtras {
   readonly storm?: boolean;
   /** A hand-picked sortie route. */
   readonly path?: PathChoice;
+  /** Seconds the simulation has been running; opening the link fast-forwards to here. */
+  readonly elapsed?: number;
 }
 
 export const encodeConfig = (cfg: Config, defaults: Config, extras: LinkExtras = {}): string => {
@@ -42,8 +44,12 @@ export const encodeConfig = (cfg: Config, defaults: Config, extras: LinkExtras =
     cfg.lakes !== defaults.lakes ? ['lakes', cfg.lakes ? '1' : '0'] : null,
     cfg.river !== defaults.river ? ['river', cfg.river ? '1' : '0'] : null,
     cfg.roads !== defaults.roads ? ['roads', cfg.roads ? '1' : '0'] : null,
+    cfg.traffic !== defaults.traffic ? ['traffic', cfg.traffic ? '1' : '0'] : null,
     extras.storm ? ['storm', '1'] : null,
     extras.path !== undefined ? ['path', String(extras.path)] : null,
+    extras.elapsed !== undefined && extras.elapsed >= 1
+      ? ['t', String(Math.floor(extras.elapsed))]
+      : null,
   ];
   return parts
     .flatMap((p) => (p ? [p] : []))
@@ -88,6 +94,7 @@ export const decodeConfig = (fragment: string): Partial<Config> => {
     ['lakes', flag('lakes')],
     ['river', flag('river')],
     ['roads', flag('roads')],
+    ['traffic', flag('traffic')],
   ];
   return Object.fromEntries(pairs.filter(([, v]) => v !== undefined)) as Partial<Config>;
 };
@@ -102,4 +109,13 @@ export const decodePath = (fragment: string): PathChoice | undefined => {
   if (text === 'river') return 'river';
   const n = parseSeed(text ?? '');
   return n === null ? undefined : n;
+};
+
+/** Longest stretch a link may fast-forward, seconds; keeps opening one from taking minutes. */
+export const MAX_ELAPSED = 300;
+
+/** How many seconds into the run the link was taken, whole seconds within `MAX_ELAPSED`; 0 when absent or malformed. */
+export const decodeElapsed = (fragment: string): number => {
+  const n = whole(new URLSearchParams(fragment.replace(/^#/, '')).get('t'));
+  return n === null ? 0 : clamp([0, MAX_ELAPSED], n);
 };
