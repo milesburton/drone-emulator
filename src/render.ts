@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { flightLine } from './altitude';
+import { ghostPath } from './ghostPath';
 import { buildBridges } from './bridgeModel';
 import { hasImpacted } from './crash';
 import { trackFor } from './track';
@@ -393,6 +393,8 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     scale: 1,
     time: 0,
     shownHeading: null as number | null,
+    routeWind: '',
+    tether: null as THREE.LineSegments | null,
     shownRoll: 0,
     shownPitch: 0,
   };
@@ -432,8 +434,19 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     water.position.y = terrain.waterLevel;
   };
 
-  const syncWaypoints = (waypoints: readonly Vec3[], terrain: Terrain): void => {
-    if (cache.waypoints === waypoints) return;
+  const syncWaypoints = (
+    waypoints: readonly Vec3[],
+    terrain: Terrain,
+    windNow: { windX: number; windZ: number },
+  ): void => {
+    const windKey = `${windNow.windX}:${windNow.windZ}`;
+    if (cache.waypoints === waypoints && cache.routeWind === windKey) return;
+    cache.routeWind = windKey;
+    if (cache.tether) {
+      scene.remove(cache.tether);
+      disposeObject(cache.tether);
+      cache.tether = null;
+    }
     markers.children.slice().forEach((m) => {
       markers.remove(m);
       disposeObject(m);
@@ -447,8 +460,25 @@ export const createView = (canvas: HTMLCanvasElement): View => {
       flag.position.set(x, ground, z);
       markers.add(flag);
     });
-    const route = flightLine(waypoints, terrain);
+    // The line is the path the autopilot will fly, so it bends where the drone does and passes each flag.
+    const route = ghostPath(waypoints, terrain, windNow);
     const loop = [...route, route[0]].map(([x, y, z]) => new THREE.Vector3(x, y, z));
+    // A thin tether from each flag's cloth to the nearest point of the route ties the two together.
+    const tethers: THREE.Vector3[] = [];
+    waypoints.forEach(([wx, wy, wz], i) => {
+      const [fx, fz] = i === 0 ? finishFlagSpot(waypoints) : [wx, wz];
+      const top = new THREE.Vector3(fx, wy, fz);
+      const near = loop.reduce((a, b) =>
+        b.distanceToSquared(top) < a.distanceToSquared(top) ? b : a,
+      );
+      tethers.push(top, near);
+    });
+    const tether = new THREE.LineSegments(
+      new THREE.BufferGeometry().setFromPoints(tethers),
+      new THREE.LineBasicMaterial({ color: 0xe0218a, transparent: true, opacity: 0.5 }),
+    );
+    scene.add(tether);
+    cache.tether = tether;
     pathLine.geometry.dispose();
     pathLine.geometry = new THREE.BufferGeometry().setFromPoints(loop);
     cache.waypoints = waypoints;
@@ -483,6 +513,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
     // The sortie route and its flags have no place on a track or a run, and the scenery trees would clip the giant ones.
     markers.visible = !on && !running;
     pathLine.visible = !on && !running;
+    if (cache.tether) cache.tether.visible = pathLine.visible;
     forest.visible = !running;
     const runKey = running ? `${s.config.seed}` : null;
     if (runKey !== cache.runKey || terrain !== cache.runTerrain) {
@@ -621,7 +652,7 @@ export const createView = (canvas: HTMLCanvasElement): View => {
 
   const draw = (s: Snapshot, terrain: Terrain): void => {
     syncTerrain(terrain);
-    syncWaypoints(s.waypoints, terrain);
+    syncWaypoints(s.waypoints, terrain, s.config);
     syncPad(s.mission.home);
     syncForest(terrain, s.mission.home);
     syncTrack(s, terrain);
