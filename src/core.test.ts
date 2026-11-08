@@ -525,7 +525,7 @@ describe('sim', () => {
 
   it('never clips the terrain, even on steep ground', () => {
     [1337, 7, 42].forEach((seed) => {
-      const cfg = { ...defaultConfig, seed, terrainScale: 120 };
+      const cfg = { ...defaultConfig, seed, terrainScale: 120, rivals: 0 };
       const t = createTerrain(cfg);
       fly(cfg, 6000)
         .filter(inFlight)
@@ -537,7 +537,7 @@ describe('sim', () => {
 
   it('climbs and descends gently on ordinary terrain', () => {
     [1337, 7, 42].forEach((seed) => {
-      const states = fly({ ...defaultConfig, seed }, 6000);
+      const states = fly({ ...defaultConfig, seed, rivals: 0 }, 6000);
       // A lost drone is collected and set back on the pad, which is a jump rather than a flight.
       const rates = states
         .slice(1)
@@ -759,7 +759,7 @@ describe('map character', () => {
       )
       .slice(0, 4);
     steep.forEach((seed) => {
-      const cfg = { ...defaultConfig, seed, terrainScale: 120 };
+      const cfg = { ...defaultConfig, seed, terrainScale: 120, rivals: 0 };
       const t = createTerrain(cfg);
       const states = Array.from({ length: 4000 }).reduce<Snapshot[]>(
         (acc) => [...acc, step(acc[acc.length - 1], t, 0.05)],

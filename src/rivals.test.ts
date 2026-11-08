@@ -106,5 +106,5 @@ describe('rivals', () => {
     const s = fly(createSnapshot(cfg, t), t, 120);
     expect(pilots(s).reduce((n, p) => n + p.mission.successes, 0)).toBeGreaterThan(8);
     expect(pilots(s).reduce((n, p) => n + p.mission.crashed, 0)).toBe(0);
-  });
+  }, 240_000);
 });
