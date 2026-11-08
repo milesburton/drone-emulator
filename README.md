@@ -17,6 +17,18 @@ work is planned.
 Written almost entirely by [Claude](https://www.anthropic.com/claude) (Anthropic's AI
 assistant) using [Claude Code](https://claude.com/claude-code), directed by Miles Burton.
 
+## Screenshots
+
+| Sortie, valley                                              | Sortie, storm                                           |
+| ----------------------------------------------------------- | ------------------------------------------------------- |
+| ![Sortie over a valley](docs/screenshots/sortie-valley.png) | ![Sortie in a storm](docs/screenshots/sortie-storm.png) |
+
+| Desert biome                                       | FPV track                                    | Forest run                                     |
+| -------------------------------------------------- | -------------------------------------------- | ---------------------------------------------- |
+| ![Desert biome](docs/screenshots/biome-desert.png) | ![FPV track](docs/screenshots/fpv-track.png) | ![Forest run](docs/screenshots/forest-run.png) |
+
+The yellow line is the path the autopilot will actually fly; pink tethers tie each flag to it.
+
 ## Commands
 
 | Command                | Purpose                                          |
