@@ -17,8 +17,10 @@ export const RESERVE = 0.1;
  * would leave nothing for takeoff, landing, climbs and headwinds, so those get their own 20%.
  */
 export const ROUTE_FRACTION = 0.7;
-/** Seconds on the pad between landing and the next takeoff. */
+/** Seconds on the pad at the start of a run, before the first takeoff. */
 export const GROUND_TIME = 3;
+/** Seconds on the pad between a landing and the next takeoff. */
+export const LANDED_TIME = 15;
 /** Seconds a crashed drone lies where it hit before it is set back on the pad to try again. */
 export const CRASH_TIME = 10;
 /** Failed attempts on one route before a new one is planned. */

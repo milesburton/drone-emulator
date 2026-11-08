@@ -35,6 +35,7 @@ import {
   findPad,
   fitToRange,
   GROUND_TIME,
+  LANDED_TIME,
   isLost,
   MAX_ATTEMPTS,
   planRoute,
@@ -835,6 +836,16 @@ describe('mission', () => {
     expect(until(start, (s) => s.mission.phase !== 'grounded').time).toBeCloseTo(GROUND_TIME, 0);
   });
 
+  it('rests on the pad for at least ten seconds after landing before it takes off again', () => {
+    expect(LANDED_TIME).toBeGreaterThanOrEqual(10);
+    expect(LANDED_TIME).toBeLessThanOrEqual(20);
+    const landed = until(start, (s) => s.mission.successes > 0);
+    expect(landed.mission.phase).toBe('grounded');
+    expect(landed.mission.groundLeft).toBe(LANDED_TIME);
+    const next = until(landed, (s) => s.mission.phase !== 'grounded');
+    expect(next.time - landed.time).toBeGreaterThanOrEqual(LANDED_TIME - 0.5);
+  });
+
   it('flies a whole sortie, lands, scores it and plans a new route', () => {
     const flown = until(start, (s) => s.mission.successes > 0);
     expect(flown.mission).toMatchObject({
@@ -846,7 +857,9 @@ describe('mission', () => {
     });
     // Routes now use nearly the whole battery, so rain can cut an attempt short before one succeeds.
     // The smoother, slower takeoff and landing cost a little more charge, so a rainy run may abort one more route.
-    expect(flown.mission.failures).toBeLessThanOrEqual(MAX_ATTEMPTS + 1);
+    // The long rest on the pad after each landing also moves every retry later into the weather cycle, so allow
+    // two full rounds of attempts before the sortie must have succeeded.
+    expect(flown.mission.failures).toBeLessThanOrEqual(MAX_ATTEMPTS * 2);
     expect(flown.drone.pos).toEqual(flown.mission.home);
     expect(flown.waypoints).not.toEqual(start.waypoints);
     expect(flown.mission.totalTrip).toBeGreaterThan(0.9 * routeLength(start.waypoints));
