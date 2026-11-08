@@ -4,8 +4,8 @@ const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
 
 /** Yaw acceleration as a multiple of the maximum yaw rate per second (reaches full rate in ~0.45 s). */
 export const YAW_ACCEL_PER_RATE = 2.2;
-/** Same for a small, agile FPV drone on a track or forest run: full rate in about one tick. */
-export const AGILE_YAW_ACCEL_PER_RATE = 60;
+/** Same for a small, agile FPV drone on a track or forest run: full rate in about one tick (0.05 s); softer values clip gates and tunnels, see the sweeps in the commit notes. */
+export const AGILE_YAW_ACCEL_PER_RATE = 20;
 /** Vertical acceleration, m/s squared. */
 export const CLIMB_ACCEL = 24;
 /** Small FPV drones accelerate vertically this many times harder. */
@@ -36,7 +36,10 @@ export const turnSmoothly = (
 ): Turn => {
   const accel = maxRate * accelPerRate;
   const delta = wrap(desired - heading);
-  const wanted = Math.sign(delta) * Math.min(maxRate, Math.sqrt(2 * accel * Math.abs(delta)));
+  // Never ask for more than closes the gap in one tick, or the heading chatters either side of the target.
+  const wanted =
+    Math.sign(delta) *
+    Math.min(maxRate, Math.sqrt(2 * accel * Math.abs(delta)), Math.abs(delta) / dt);
   const next = approach(rate, wanted, accel * dt);
   return { heading: wrap(heading + next * dt), rate: next };
 };
